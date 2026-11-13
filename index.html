@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'unsafe-inline'; connect-src https://ethereum-sepolia-rpc.publicnode.com https://ethereum-rpc.publicnode.com; img-src data:; base-uri 'none'; form-action 'none'">
+<title>My Wallet</title>
+<style>
+:root{--bg:#eef2f1;--card:#fff;--ink:#13211e;--mute:#5b6b67;--line:#cfdad7;--acc:#0f6b5c;--accink:#fff;--warn:#fff4e0;--warnink:#7a3d05;--bad:#b3261e;--ok:#0f6b5c}
+@media(prefers-color-scheme:dark){:root{--bg:#0e1614;--card:#16211f;--ink:#e6f0ee;--mute:#93a8a3;--line:#294039;--acc:#3fc3aa;--accink:#06231d;--warn:#33240f;--warnink:#f3c58a;--bad:#ff8a80;--ok:#3fc3aa}}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+#app{max-width:480px;margin:0 auto;padding:20px 16px 48px}
+h1{font-size:26px;margin:8px 0 4px;letter-spacing:-.01em}
+h2{font-size:18px;margin:0 0 8px}
+.sub,.note{color:var(--mute);font-size:14px;margin:0 0 16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin:14px 0}
+.card.warn{background:var(--warn);color:var(--warnink);border-color:transparent;font-size:15px}
+label{display:block;font-size:14px;color:var(--mute);margin:12px 0 4px}
+input,textarea,select{width:100%;padding:12px;font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:10px}
+textarea{min-height:96px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:14px}
+input:focus,textarea:focus,select:focus,button:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+button{width:100%;padding:13px;margin-top:12px;font:inherit;font-weight:600;color:var(--accink);background:var(--acc);border:0;border-radius:10px;cursor:pointer}
+button.alt{background:transparent;color:var(--ink);border:1px solid var(--line)}
+button.danger{color:var(--bad);border-color:var(--bad)}
+button.sm{width:auto;padding:8px 14px;font-size:14px;margin-top:8px}
+.top{display:flex;justify-content:space-between;align-items:center}
+.top button{margin:0}
+.addr,.bal{-webkit-user-select:all;user-select:all;font-family:ui-monospace,Menlo,Consolas,monospace;word-break:break-all}
+.bal{font-size:24px;font-weight:700}
+.words{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:14px 0}
+.words span{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px;font-family:ui-monospace,Menlo,Consolas,monospace}
+.words i{color:var(--mute);font-style:normal;margin-right:8px;font-size:13px}
+.msg{margin-top:10px;font-size:14px;word-break:break-word}.err{color:var(--bad)}.ok{color:var(--ok)}
+a{color:var(--acc)}
+</style>
+</head>
+<body>
+<main id="app"></main>
+<script src="https://cdn.jsdelivr.net/npm/ethers@6.13.4/dist/ethers.umd.min.js"></script>
+<script>
+const $ = s => document.querySelector(s);
+const NETS = {
+  sepolia: { name: 'Sepolia (test network)', id: 11155111, rpc: 'https://ethereum-sepolia-rpc.publicnode.com', sym: 'SepETH', scan: 'https://sepolia.etherscan.io' },
+  mainnet: { name: 'Ethereum Mainnet (real money)', id: 1, rpc: 'https://ethereum-rpc.publicnode.com', sym: 'ETH', scan: 'https://etherscan.io' }
+};
+const KEY = 'mywallet.v1';
+let wallet = null, net = 'sepolia', timer = null, temp = {};
+const enc = new TextEncoder(), dec = new TextDecoder();
+const b64 = b => btoa(String.fromCharCode(...new Uint8Array(b)));
+const unb64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const load = () => { try { return JSON.parse(localStorage.getItem(KEY)); } catch { return null; } };
+const save = v => { try { localStorage.setItem(KEY, JSON.stringify(v)); return true; } catch { return false; } };
+const mk = s => s.t === 'm' ? ethers.Wallet.fromPhrase(s.v) : new ethers.Wallet(s.v);
+const wait = () => new Promise(r => setTimeout(r, 40));
+
+function show(h) { $('#app').innerHTML = h; window.scrollTo(0, 0); }
+function msg(id, t, ok) { const e = $('#' + id); if (e) { e.textContent = t; e.className = 'msg ' + (ok ? 'ok' : 'err'); } }
+async function copyText(t, btn) {
+  let ok = false;
+  try { await navigator.clipboard.writeText(t); ok = true; } catch {}
+  if (!ok) {
+    const a = document.createElement('textarea');
+    a.value = t; a.setAttribute('readonly', ''); a.style.cssText = 'position:fixed;top:0;left:0;opacity:0';
+    document.body.appendChild(a); a.focus(); a.select(); a.setSelectionRange(0, t.length);
+    try { ok = document.execCommand('copy'); } catch {}
+    a.remove();
+  }
+  if (btn) { const o = btn.textContent; btn.textContent = ok ? 'Copied' : 'Copy failed: press and hold the text'; setTimeout(() => btn.textContent = o, 2000); }
+}
+
+/* ---- encryption: PBKDF2 (600k) + AES-GCM, all in the browser ---- */
+async function dk(pw, salt, iter) {
+  const base = await crypto.subtle.importKey('raw', enc.encode(pw), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey({ name: 'PBKDF2', salt, iterations: iter, hash: 'SHA-256' }, base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+}
+async function seal(secret, address, pw) {
+  const salt = crypto.getRandomValues(new Uint8Array(16)), iv = crypto.getRandomValues(new Uint8Array(12)), iter = 600000;
+  const k = await dk(pw, salt, iter);
+  const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, k, enc.encode(JSON.stringify(secret)));
+  return { v: 1, address, iter, salt: b64(salt), iv: b64(iv), ct: b64(ct) };
+}
+async function openSeal(r, pw) {
+  const k = await dk(pw, unb64(r.salt), r.iter);
+  const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64(r.iv) }, k, unb64(r.ct));
+  return JSON.parse(dec.decode(pt));
+}
+
+/* ---- screens ---- */
+function home() {
+  const s = load();
+  if (s && s.ct) return unlockView();
+  show(`<h1>My Wallet</h1><p class="sub">Self-custody. Your keys never leave this device.</p>
+  <div class="card"><button onclick="createView()">Create new wallet</button>
+  <button class="alt" onclick="importView()">Import recovery phrase or private key</button>
+  <button class="alt" onclick="restoreView()">Restore from encrypted backup</button></div>
+  <p class="note">Practice on Sepolia first. Do not keep real funds here until the app has had a security review.</p>`);
+}
+
+function createView() {
+  show(`<h1>Create wallet</h1><div class="card">
+  <label>Password (at least 10 characters)</label><input id="p1" type="password" autocomplete="new-password">
+  <label>Repeat password</label><input id="p2" type="password" autocomplete="new-password">
+  <p class="note">The password only unlocks the wallet on this device. It cannot recover funds. Your recovery phrase can.</p>
+  <button onclick="createNext()">Continue</button><button class="alt" onclick="home()">Back</button><div id="m"></div></div>`);
+}
+function createNext() {
+  const a = $('#p1').value, b = $('#p2').value;
+  if (a.length < 10) return msg('m', 'Use at least 10 characters.');
+  if (a !== b) return msg('m', 'The passwords do not match.');
+  const w = ethers.Wallet.createRandom();
+  temp = { pw: a, phrase: w.mnemonic.phrase, address: w.address };
+  phraseView();
+}
+function phraseView() {
+  const words = temp.phrase.split(' ');
+  show(`<h1>Recovery phrase</h1>
+  <div class="card warn">Write these 12 words on paper, in order. Anyone who has them controls your funds. If you lose them and forget the password, the funds are gone for good. No screenshots, no cloud notes.</div>
+  <div class="words">${words.map((w, i) => `<span><i>${i + 1}</i>${w}</span>`).join('')}</div>
+  <button onclick="verifyView()">I wrote it down</button>`);
+}
+function verifyView() {
+  const idx = [...Array(12).keys()].sort(() => Math.random() - .5).slice(0, 3).sort((a, b) => a - b);
+  temp.idx = idx;
+  show(`<h1>Check your copy</h1><div class="card">
+  ${idx.map(i => `<label>Word number ${i + 1}</label><input class="vw" autocapitalize="none" autocomplete="off" spellcheck="false">`).join('')}
+  <button onclick="verifyDone()">Check and create wallet</button>
+  <button class="alt" onclick="phraseView()">Show the phrase again</button><div id="m"></div></div>`);
+}
+async function verifyDone() {
+  const words = temp.phrase.split(' '), ins = [...document.querySelectorAll('.vw')];
+  if (!ins.every((x, k) => x.value.trim().toLowerCase() === words[temp.idx[k]])) return msg('m', 'A word is wrong. Compare with your paper copy.');
+  msg('m', 'Encrypting...', 1); await wait();
+  await finish({ t: 'm', v: temp.phrase }, temp.address, temp.pw);
+}
+async function finish(secret, address, pw) {
+  const rec = await seal(secret, address, pw);
+  if (!save(rec)) return alert('This browser blocked storage (private mode?). The wallet was not saved.');
+  wallet = mk(secret); temp = {};
+  mainView();
+}
+
+function importView() {
+  show(`<h1>Import wallet</h1><div class="card">
+  <p class="note">Paste your 12 or 24 word phrase, or a private key. A wallet already stored here will be replaced.</p>
+  <label>Recovery phrase or private key</label><textarea id="sec" autocapitalize="none" autocomplete="off" spellcheck="false"></textarea>
+  <label>New password (at least 10 characters)</label><input id="p1" type="password" autocomplete="new-password">
+  <button onclick="importDo()">Import</button><button class="alt" onclick="home()">Back</button><div id="m"></div></div>`);
+}
+async function importDo() {
+  const raw = $('#sec').value.trim(), pw = $('#p1').value;
+  if (pw.length < 10) return msg('m', 'Use a password of at least 10 characters.');
+  let secret;
+  if (/^(0x)?[0-9a-fA-F]{64}$/.test(raw)) secret = { t: 'k', v: raw.startsWith('0x') ? raw : '0x' + raw };
+  else {
+    const p = raw.toLowerCase().split(/\s+/).join(' ');
+    if (!ethers.Mnemonic.isValidMnemonic(p)) return msg('m', 'Not a valid recovery phrase or private key.');
+    secret = { t: 'm', v: p };
+  }
+  msg('m', 'Encrypting...', 1); await wait();
+  await finish(secret, mk(secret).address, pw);
+}
+
+function unlockView() {
+  const s = load();
+  show(`<h1>My Wallet</h1><p class="sub addr">${esc(s.address)}</p><div class="card">
+  <label>Password</label><input id="pw" type="password" autocomplete="current-password">
+  <button onclick="unlock()">Unlock</button><div id="m"></div></div>
+  <div class="card"><h2>Forgot the password?</h2>
+  <p class="note">The password cannot be reset. Import your recovery phrase again and choose a new one.</p>
+  <button class="alt" onclick="importView()">Import recovery phrase</button></div>`);
+}
+async function unlock() {
+  msg('m', 'Unlocking...', 1); await wait();
+  try { wallet = mk(await openSeal(load(), $('#pw').value)); mainView(); }
+  catch { msg('m', 'Wrong password.'); }
+}
+function lock() { wallet = null; clearTimeout(timer); unlockView(); }
+function arm() { clearTimeout(timer); timer = setTimeout(lock, 300000); }
+['click', 'touchstart', 'keydown'].forEach(e => document.addEventListener(e, () => { if (wallet) arm(); }, { passive: true }));
+
+const prov = () => { const n = NETS[net]; return new ethers.JsonRpcProvider(n.rpc, n.id, { staticNetwork: ethers.Network.from(n.id) }); };
+
+function mainView() {
+  arm();
+  show(`<div class="top"><h1>My Wallet</h1><button class="sm alt" onclick="lock()">Lock</button></div>
+  <select id="net" onchange="net=this.value;mainView()">${Object.entries(NETS).map(([k, n]) => `<option value="${k}" ${k === net ? 'selected' : ''}>${n.name}</option>`).join('')}</select>
+  ${net === 'mainnet' ? '<div class="card warn">Mainnet uses real money. Check every address twice.</div>' : ''}
+  <div class="card"><label>Your address (share it to receive)</label><div class="addr">${wallet.address}</div>
+  <button class="sm" onclick="copyText('${wallet.address}', this)">Copy address</button>
+  <label>Balance</label><div class="bal" id="bal">...</div>
+  <button class="sm alt" onclick="refresh()">Refresh</button></div>
+  <div class="card"><h2>Send ${NETS[net].sym}</h2>
+  <label>To address</label><input id="to" autocomplete="off" spellcheck="false" placeholder="0x...">
+  <label>Amount</label><input id="amt" inputmode="decimal" placeholder="0.001">
+  <button onclick="sendPrep()">Review</button><div id="m"></div></div>
+  <div class="card"><h2>Security</h2>
+  <button class="alt" onclick="secView()">Show recovery phrase and private key</button>
+  <button class="alt" onclick="backupView()">Export encrypted backup</button>
+  <button class="alt danger" onclick="wipeView()">Remove wallet from this device</button></div>`);
+  refresh();
+}
+async function refresh() {
+  const p = prov();
+  try { $('#bal').textContent = ethers.formatEther(await p.getBalance(wallet.address)) + ' ' + NETS[net].sym; }
+  catch { const b = $('#bal'); if (b) b.textContent = 'Could not load. Check your connection and refresh.'; }
+  p.destroy();
+}
+
+async function sendPrep() {
+  const to = $('#to').value.trim(), amt = $('#amt').value.trim();
+  if (!ethers.isAddress(to)) return msg('m', 'That is not a valid address.');
+  let v; try { v = ethers.parseEther(amt); if (v <= 0n) throw 0; } catch { return msg('m', 'Enter an amount greater than 0.'); }
+  msg('m', 'Estimating fee...', 1);
+  const p = prov();
+  try {
+    const f = await p.getFeeData(), gas = await p.estimateGas({ from: wallet.address, to, value: v });
+    const fee = (f.maxFeePerGas ?? f.gasPrice) * gas, bal = await p.getBalance(wallet.address);
+    if (bal < v + fee) return msg('m', 'Not enough balance for the amount plus the fee (about ' + ethers.formatEther(fee) + ').');
+    temp.tx = { to, v };
+    show(`<h1>Confirm send</h1><div class="card"><label>To</label><div class="addr">${to}</div>
+    <label>Amount</label><div class="bal">${esc(amt)} ${NETS[net].sym}</div>
+    <label>Maximum network fee</label><div class="addr">${ethers.formatEther(fee)} ${NETS[net].sym}</div>
+    <label>Network</label><div>${NETS[net].name}</div>
+    <button onclick="sendNow()">Confirm and send</button><button class="alt" onclick="mainView()">Cancel</button><div id="m"></div></div>`);
+  } catch (e) { msg('m', 'Failed: ' + (e.shortMessage || e.message)); }
+  p.destroy();
+}
+async function sendNow() {
+  msg('m', 'Sending...', 1);
+  const p = prov();
+  try {
+    const tx = await wallet.connect(p).sendTransaction({ to: temp.tx.to, value: temp.tx.v });
+    $('#m').className = 'msg ok';
+    $('#m').innerHTML = `Sent. <a href="${NETS[net].scan}/tx/${tx.hash}" target="_blank" rel="noopener">View transaction</a><br><button class="alt" onclick="mainView()">Done</button>`;
+  } catch (e) { msg('m', 'Failed: ' + (e.shortMessage || e.message)); }
+  p.destroy();
+}
+
+function secView() {
+  show(`<h1>Show secrets</h1><div class="card warn">Make sure nobody can see your screen.</div><div class="card">
+  <label>Password</label><input id="pw" type="password" autocomplete="current-password">
+  <button onclick="secShow()">Show</button><button class="alt" onclick="mainView()">Back</button><div id="m"></div></div>`);
+}
+async function secShow() {
+  msg('m', 'Checking...', 1); await wait();
+  try {
+    const s = await openSeal(load(), $('#pw').value), w = mk(s);
+    show(`<h1>Your secrets</h1><div class="card warn">Never share these or type them into any website. Hide this screen when done.</div>
+    ${s.t === 'm' ? `<div class="words">${s.v.split(' ').map((x, i) => `<span><i>${i + 1}</i>${x}</span>`).join('')}</div>` : '<p class="note">This wallet was imported from a private key, so it has no phrase.</p>'}
+    <div class="card"><label>Private key</label><div class="addr">${w.privateKey}</div></div>
+    <button onclick="mainView()">Hide</button>`);
+  } catch { msg('m', 'Wrong password.'); }
+}
+
+function backupView() {
+  show(`<h1>Encrypted backup</h1><div class="card">
+  <p class="note">This text is your wallet encrypted with your password. Save it somewhere safe. Restoring needs this text and the password. It does not replace your recovery phrase.</p>
+  <textarea id="bk" readonly>${esc(JSON.stringify(load()))}</textarea>
+  <button onclick="copyText($('#bk').value, this)">Copy backup</button><button class="alt" onclick="mainView()">Back</button></div>`);
+}
+function restoreView() {
+  show(`<h1>Restore backup</h1><div class="card"><label>Paste the encrypted backup text</label><textarea id="bk"></textarea>
+  <button onclick="restoreDo()">Restore</button><button class="alt" onclick="home()">Back</button><div id="m"></div></div>`);
+}
+function restoreDo() {
+  try {
+    const r = JSON.parse($('#bk').value.trim());
+    const ok = r.v === 1 && ethers.isAddress(r.address) && r.iter >= 100000 && r.iter <= 5000000 && r.salt && r.iv && r.ct;
+    if (!ok) throw 0;
+    if (!save({ v: 1, address: r.address, iter: r.iter, salt: r.salt, iv: r.iv, ct: r.ct })) return msg('m', 'Could not save in this browser.');
+    unlockView();
+  } catch { msg('m', 'This is not a valid backup.'); }
+}
+
+function wipeView() {
+  show(`<h1>Remove wallet</h1><div class="card warn">This deletes the wallet from this device. You can only get it back with your recovery phrase or backup. Make sure you have one.</div>
+  <div class="card"><label>Type DELETE to confirm</label><input id="c" autocapitalize="characters" autocomplete="off">
+  <button class="danger alt" onclick="wipeDo()">Remove wallet</button><button onclick="mainView()">Cancel</button><div id="m"></div></div>`);
+}
+function wipeDo() {
+  if ($('#c').value.trim() !== 'DELETE') return msg('m', 'Type DELETE exactly.');
+  try { localStorage.removeItem(KEY); } catch {}
+  wallet = null; clearTimeout(timer); home();
+}
+
+if (!window.ethers) show('<h1>My Wallet</h1><div class="card warn">Could not load the ethers library. Check your internet connection and reload.</div>');
+else if (!window.crypto || !crypto.subtle) show('<h1>My Wallet</h1><div class="card warn">This page needs a secure connection (https). Open it from GitHub Pages or localhost.</div>');
+else home();
+</script>
+</body>
+</html>
