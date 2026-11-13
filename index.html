@@ -33,6 +33,7 @@ button.sm{width:auto;padding:8px 14px;font-size:14px;margin-top:8px}
 .words i{color:var(--mute);font-style:normal;margin-right:8px;font-size:13px}
 .msg{margin-top:10px;font-size:14px;word-break:break-word}.err{color:var(--bad)}.ok{color:var(--ok)}
 a{color:var(--acc)}
+.tk{display:grid;grid-template-columns:1fr auto;gap:6px 10px;align-items:center;padding:10px 0;border-bottom:1px solid var(--line)}.tk .tb{font-family:ui-monospace,Menlo,Consolas,monospace;font-weight:700;text-align:right}.tk .sm{grid-column:1/-1;justify-self:start;margin-top:0}
 </style>
 </head>
 <body>
@@ -180,6 +181,12 @@ function lock() { wallet = null; clearTimeout(timer); unlockView(); }
 function arm() { clearTimeout(timer); timer = setTimeout(lock, 300000); }
 ['click', 'touchstart', 'keydown'].forEach(e => document.addEventListener(e, () => { if (wallet) arm(); }, { passive: true }));
 
+const ERC20 = ['function symbol() view returns (string)', 'function decimals() view returns (uint8)', 'function balanceOf(address) view returns (uint256)', 'function transfer(address,uint256) returns (bool)'];
+const TKEY = 'mywallet.tokens.v1';
+const DEFAULTS = { 11155111: [{ a: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238', s: 'USDC', d: 6 }] };
+function allTokens() { try { return JSON.parse(localStorage.getItem(TKEY)) || {}; } catch { return {}; } }
+function tokens() { const id = NETS[net].id; return allTokens()[id] || DEFAULTS[id] || []; }
+function saveTokens(l) { const a = allTokens(); a[NETS[net].id] = l; try { localStorage.setItem(TKEY, JSON.stringify(a)); } catch {} }
 const prov = () => { const n = NETS[net]; return new ethers.JsonRpcProvider(n.rpc, n.id, { staticNetwork: ethers.Network.from(n.id) }); };
 
 function mainView() {
@@ -191,7 +198,12 @@ function mainView() {
   <button class="sm" onclick="copyText('${wallet.address}', this)">Copy address</button>
   <label>Balance</label><div class="bal" id="bal">...</div>
   <button class="sm alt" onclick="refresh()">Refresh</button></div>
-  <div class="card"><h2>Send ${NETS[net].sym}</h2>
+  <div class="card"><h2>Tokens</h2><div id="tk"></div>
+  <label>Add token (contract address)</label><input id="ta" autocomplete="off" spellcheck="false" placeholder="0x...">
+  <button class="alt" onclick="addToken()">Add token</button><div id="tm"></div>
+  <p class="note">Anyone can create a token with any name, even a fake "USDC". Add only addresses from the official source.</p></div>
+  <div class="card"><h2>Send</h2>
+  <label>Asset</label><select id="as"><option value="">${NETS[net].sym}</option>${tokens().map(t => `<option value="${esc(t.a)}">${esc(t.s)}</option>`).join('')}</select>
   <label>To address</label><input id="to" autocomplete="off" spellcheck="false" placeholder="0x...">
   <label>Amount</label><input id="amt" inputmode="decimal" placeholder="0.001">
   <button onclick="sendPrep()">Review</button><div id="m"></div></div>
@@ -206,36 +218,83 @@ async function refresh() {
   try { $('#bal').textContent = ethers.formatEther(await p.getBalance(wallet.address)) + ' ' + NETS[net].sym; }
   catch { const b = $('#bal'); if (b) b.textContent = 'Could not load. Check your connection and refresh.'; }
   p.destroy();
+  refreshTokens();
+}
+
+async function refreshTokens() {
+  const box = $('#tk'); if (!box) return;
+  const list = tokens();
+  if (!list.length) { box.innerHTML = '<p class="note">No tokens added on this network.</p>'; return; }
+  box.innerHTML = list.map((t, i) => `<div class="tk"><div><b>${esc(t.s)}</b><div class="note addr" style="margin:0;font-size:12px">${esc(t.a)}</div></div><div class="tb" id="tb${i}">...</div><button class="sm alt danger" onclick="rmToken(${i})">Remove</button></div>`).join('');
+  const p = prov();
+  await Promise.all(list.map(async (t, i) => {
+    try { const b = await new ethers.Contract(t.a, ERC20, p).balanceOf(wallet.address); const e = $('#tb' + i); if (e) e.textContent = ethers.formatUnits(b, t.d); }
+    catch { const e = $('#tb' + i); if (e) e.textContent = '?'; }
+  }));
+  p.destroy();
+}
+async function addToken() {
+  const raw = $('#ta').value.trim();
+  if (!ethers.isAddress(raw)) return msg('tm', 'That is not a valid contract address.');
+  const a = ethers.getAddress(raw);
+  if (tokens().some(t => t.a === a)) return msg('tm', 'Token already added.');
+  msg('tm', 'Reading token...', 1);
+  const p = prov();
+  try {
+    if ((await p.getCode(a)) === '0x') return msg('tm', 'No contract at this address on ' + NETS[net].name + '.');
+    const c = new ethers.Contract(a, ERC20, p);
+    const [s, d] = await Promise.all([c.symbol(), c.decimals()]);
+    await c.balanceOf(wallet.address);
+    const dn = Number(d);
+    if (!(dn >= 0 && dn <= 36)) throw 0;
+    saveTokens([...tokens(), { a, s: String(s).slice(0, 12), d: dn }]);
+    mainView();
+  } catch { msg('tm', 'This does not look like a standard token on this network.'); }
+  finally { p.destroy(); }
+}
+function rmToken(i) {
+  if (!confirm('Remove this token from the list? Your tokens are not deleted.')) return;
+  const l = tokens(); l.splice(i, 1); saveTokens(l); mainView();
 }
 
 async function sendPrep() {
-  const to = $('#to').value.trim(), amt = $('#amt').value.trim();
+  const to = $('#to').value.trim(), amt = $('#amt').value.trim(), as = $('#as').value;
+  const tk = as ? tokens().find(t => t.a === as) : null;
+  const sym = tk ? tk.s : NETS[net].sym;
   if (!ethers.isAddress(to)) return msg('m', 'That is not a valid address.');
-  let v; try { v = ethers.parseEther(amt); if (v <= 0n) throw 0; } catch { return msg('m', 'Enter an amount greater than 0.'); }
+  let v; try { v = ethers.parseUnits(amt, tk ? tk.d : 18); if (v <= 0n) throw 0; } catch { return msg('m', 'Enter an amount greater than 0.'); }
   msg('m', 'Estimating fee...', 1);
   const p = prov();
   try {
-    const f = await p.getFeeData(), gas = await p.estimateGas({ from: wallet.address, to, value: v });
-    const fee = (f.maxFeePerGas ?? f.gasPrice) * gas, bal = await p.getBalance(wallet.address);
-    if (bal < v + fee) return msg('m', 'Not enough balance for the amount plus the fee (about ' + ethers.formatEther(fee) + ').');
-    temp.tx = { to, v };
+    const f = await p.getFeeData(), ethBal = await p.getBalance(wallet.address);
+    let gas;
+    if (tk) {
+      const c = new ethers.Contract(tk.a, ERC20, p);
+      if ((await c.balanceOf(wallet.address)) < v) return msg('m', 'Not enough ' + sym + ' balance.');
+      gas = await c.transfer.estimateGas(to, v, { from: wallet.address });
+    } else gas = await p.estimateGas({ from: wallet.address, to, value: v });
+    const fee = (f.maxFeePerGas ?? f.gasPrice) * gas;
+    if (ethBal < fee + (tk ? 0n : v)) return msg('m', 'Not enough ' + NETS[net].sym + ' for the amount plus the fee (about ' + ethers.formatEther(fee) + ').');
+    temp.tx = { to, v, tk };
     show(`<h1>Confirm send</h1><div class="card"><label>To</label><div class="addr">${to}</div>
-    <label>Amount</label><div class="bal">${esc(amt)} ${NETS[net].sym}</div>
-    <label>Maximum network fee</label><div class="addr">${ethers.formatEther(fee)} ${NETS[net].sym}</div>
+    <label>Amount</label><div class="bal">${esc(amt)} ${esc(sym)}</div>
+    ${tk ? `<label>Token contract</label><div class="addr">${esc(tk.a)}</div>` : ''}
+    <label>Maximum network fee (paid in ${NETS[net].sym})</label><div class="addr">${ethers.formatEther(fee)} ${NETS[net].sym}</div>
     <label>Network</label><div>${NETS[net].name}</div>
     <button onclick="sendNow()">Confirm and send</button><button class="alt" onclick="mainView()">Cancel</button><div id="m"></div></div>`);
   } catch (e) { msg('m', 'Failed: ' + (e.shortMessage || e.message)); }
-  p.destroy();
+  finally { p.destroy(); }
 }
 async function sendNow() {
   msg('m', 'Sending...', 1);
-  const p = prov();
+  const p = prov(), t = temp.tx;
   try {
-    const tx = await wallet.connect(p).sendTransaction({ to: temp.tx.to, value: temp.tx.v });
+    const w = wallet.connect(p);
+    const tx = t.tk ? await new ethers.Contract(t.tk.a, ERC20, w).transfer(t.to, t.v) : await w.sendTransaction({ to: t.to, value: t.v });
     $('#m').className = 'msg ok';
     $('#m').innerHTML = `Sent. <a href="${NETS[net].scan}/tx/${tx.hash}" target="_blank" rel="noopener">View transaction</a><br><button class="alt" onclick="mainView()">Done</button>`;
   } catch (e) { msg('m', 'Failed: ' + (e.shortMessage || e.message)); }
-  p.destroy();
+  finally { p.destroy(); }
 }
 
 function secView() {
