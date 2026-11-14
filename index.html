@@ -21,6 +21,7 @@ input,textarea,select{width:100%;padding:12px;font:inherit;color:var(--ink);back
 textarea{min-height:96px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:14px}
 input:focus,textarea:focus,select:focus,button:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
 button{width:100%;padding:13px;margin-top:12px;font:inherit;font-weight:600;color:var(--accink);background:var(--acc);border:0;border-radius:10px;cursor:pointer}
+button:disabled{opacity:.5;cursor:default}
 button.alt{background:transparent;color:var(--ink);border:1px solid var(--line)}
 button.danger{color:var(--bad);border-color:var(--bad)}
 button.sm{width:auto;padding:8px 14px;font-size:14px;margin-top:8px}
@@ -183,7 +184,7 @@ function arm() { clearTimeout(timer); timer = setTimeout(lock, 300000); }
 
 const ERC20 = ['function symbol() view returns (string)', 'function decimals() view returns (uint8)', 'function balanceOf(address) view returns (uint256)', 'function transfer(address,uint256) returns (bool)'];
 const TKEY = 'mywallet.tokens.v1';
-const DEFAULTS = { 11155111: [{ a: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238', s: 'USDC', d: 6 }] };
+const DEFAULTS = { 11155111: [{ a: '0xf884e202ba30181B4c32FDdd6390F15816da0b4A', s: 'DRX', d: 18 }, { a: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238', s: 'USDC', d: 6 }] };
 function allTokens() { try { return JSON.parse(localStorage.getItem(TKEY)) || {}; } catch { return {}; } }
 function tokens() { const id = NETS[net].id; return allTokens()[id] || DEFAULTS[id] || []; }
 function saveTokens(l) { const a = allTokens(); a[NETS[net].id] = l; try { localStorage.setItem(TKEY, JSON.stringify(a)); } catch {} }
@@ -205,6 +206,7 @@ async function checkPending() {
   try { for (const h of l) { const r = await p.getTransactionReceipt(h.h); if (r) setHist(h.h, r.status === 1 ? 'ok' : 'fail'); } } catch {}
   p.destroy(); renderHist();
 }
+document.addEventListener('visibilitychange', () => { if (!document.hidden && wallet) checkPending(); });
 const prov = () => { const n = NETS[net]; return new ethers.JsonRpcProvider(n.rpc, n.id, { staticNetwork: ethers.Network.from(n.id) }); };
 
 function mainView() {
@@ -294,17 +296,28 @@ async function sendPrep() {
     } else gas = await p.estimateGas({ from: wallet.address, to, value: v });
     const fee = (f.maxFeePerGas ?? f.gasPrice) * gas;
     if (ethBal < fee + (tk ? 0n : v)) return msg('m', 'Not enough ' + NETS[net].sym + ' for the amount plus the fee (about ' + ethers.formatEther(fee) + ').');
-    temp.tx = { to, v, tk, amt, sym };
+    temp.tx = { to, v, tk, amt, sym }; temp.busy = false;
     show(`<h1>Confirm send</h1><div class="card"><label>To</label><div class="addr">${to}</div>
     <label>Amount</label><div class="bal">${esc(amt)} ${esc(sym)}</div>
     ${tk ? `<label>Token contract</label><div class="addr">${esc(tk.a)}</div>` : ''}
     <label>Maximum network fee (paid in ${NETS[net].sym})</label><div class="addr">${ethers.formatEther(fee)} ${NETS[net].sym}</div>
     <label>Network</label><div>${NETS[net].name}</div>
-    <button onclick="sendNow()">Confirm and send</button><button class="alt" onclick="mainView()">Cancel</button><div id="m"></div></div>`);
+    <button id="cf" onclick="sendNow()">Confirm and send</button><button class="alt" onclick="mainView()">Cancel</button><div id="m"></div></div>`);
   } catch (e) { msg('m', 'Failed: ' + (e.shortMessage || e.message)); }
   finally { p.destroy(); }
 }
+async function waitTx(p, hash, ms) {
+  const end = Date.now() + ms;
+  while (Date.now() < end) {
+    try { const r = await p.getTransactionReceipt(hash); if (r) return r; } catch {}
+    await new Promise(r => setTimeout(r, 3000));
+  }
+  return null;
+}
 async function sendNow() {
+  if (temp.busy) return;
+  temp.busy = true;
+  const cf = $('#cf'); if (cf) cf.disabled = true;
   msg('m', 'Sending...', 1);
   const p = prov(), t = temp.tx, id = NETS[net].id, link = NETS[net].scan;
   const out = (h, c) => { const m = $('#m'); if (m) { m.className = 'msg ' + c; m.innerHTML = h; } };
@@ -315,11 +328,13 @@ async function sendNow() {
     const view = `<a href="${link}/tx/${tx.hash}" target="_blank" rel="noopener">View transaction</a>`;
     out(`Sent. Waiting for confirmation... ${view}`, 'ok');
     try {
-      const r = await p.waitForTransaction(tx.hash, 1, 180000), ok = r && r.status === 1;
-      setHist(tx.hash, ok ? 'ok' : 'fail');
+      const r = await waitTx(p, tx.hash, 180000);
+      if (!r) throw 0;
+      const ok = r.status === 1;
+      setHist(tx.hash, ok ? 'ok' : 'fail'); renderHist();
       out(`${ok ? 'Confirmed in block ' + r.blockNumber + '.' : 'The transaction failed on-chain.'} ${view}<br><button class="alt" onclick="mainView()">Back to wallet</button>`, ok ? 'ok' : 'err');
     } catch { out(`Still pending. It may confirm later. ${view}<br><button class="alt" onclick="mainView()">Back to wallet</button>`, 'ok'); }
-  } catch (e) { msg('m', 'Failed: ' + (e.shortMessage || e.message)); }
+  } catch (e) { temp.busy = false; const c = $('#cf'); if (c) c.disabled = false; msg('m', 'Failed: ' + (e.shortMessage || e.message)); }
   finally { p.destroy(); }
 }
 
