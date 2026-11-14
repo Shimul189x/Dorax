@@ -3,38 +3,128 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'unsafe-inline'; connect-src https://ethereum-sepolia-rpc.publicnode.com https://ethereum-rpc.publicnode.com https://eth-sepolia.blockscout.com https://eth.blockscout.com; img-src data:; base-uri 'none'; form-action 'none'">
-<title>My Wallet</title>
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'unsafe-inline'; connect-src https:; img-src data:; base-uri 'none'; form-action 'none'">
+<title>Dorax Wallet</title>
 <style>
-:root{--bg:#eef2f1;--card:#fff;--ink:#13211e;--mute:#5b6b67;--line:#cfdad7;--acc:#0f6b5c;--accink:#fff;--warn:#fff4e0;--warnink:#7a3d05;--bad:#b3261e;--ok:#0f6b5c}
-@media(prefers-color-scheme:dark){:root{--bg:#0e1614;--card:#16211f;--ink:#e6f0ee;--mute:#93a8a3;--line:#294039;--acc:#3fc3aa;--accink:#06231d;--warn:#33240f;--warnink:#f3c58a;--bad:#ff8a80;--ok:#3fc3aa}}
+:root{--bg:#f3f6fc;--card:#fff;--sur:#e9effb;--ink:#0f1a33;--mute:#6b7a99;--line:#e3e9f6;--acc:#1f5af6;--accink:#fff;--warn:#fff4dc;--warnink:#7a4a05;--bad:#d92d20;--ok:#16a34a;--link:#1f5af6;--sh:0 10px 28px -16px rgba(31,64,160,.35)}
+@media(prefers-color-scheme:dark){:root{--bg:#0b1226;--card:#141d36;--sur:#1b2644;--ink:#eef2fc;--mute:#8d9bbd;--line:#243153;--acc:#4d86ff;--warn:#2d2410;--warnink:#f0c987;--bad:#ff7a6e;--ok:#3ccf74;--link:#7aa5ff;--sh:0 10px 28px -16px rgba(0,0,0,.6)}}
 *{box-sizing:border-box}
-html,body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
-#app{max-width:480px;margin:0 auto;padding:20px 16px 48px}
-h1{font-size:26px;margin:8px 0 4px;letter-spacing:-.01em}
-h2{font-size:18px;margin:0 0 8px}
-.sub,.note{color:var(--mute);font-size:14px;margin:0 0 16px}
-.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin:14px 0}
-.card.warn{background:var(--warn);color:var(--warnink);border-color:transparent;font-size:15px}
-label{display:block;font-size:14px;color:var(--mute);margin:12px 0 4px}
-input,textarea,select{width:100%;padding:12px;font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:10px}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-tap-highlight-color:transparent}
+body{background-image:radial-gradient(90% 40% at 50% -5%,rgba(31,90,246,.13),transparent 70%);background-repeat:no-repeat}
+#app{max-width:480px;margin:0 auto;padding:14px 18px 56px}
+.pg{animation:fade .22s ease both}
+svg{fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+h1{font-size:26px;line-height:1.2;margin:6px 0;letter-spacing:-.015em}
+h2{font-size:13px;margin:0 0 8px;color:var(--mute);font-weight:600}
+.sub,.note{color:var(--mute);font-size:14px;margin:0 0 14px}
+.card{background:var(--card);border-radius:18px;padding:16px;margin:14px 0;box-shadow:var(--sh)}
+.card.warn{background:var(--warn);color:var(--warnink);font-size:14px;box-shadow:none}
+label{display:block;font-size:13px;color:var(--mute);margin:14px 0 6px;font-weight:600}
+input,textarea,select{width:100%;padding:13px 14px;font:inherit;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:14px;transition:border-color .2s,box-shadow .2s}
 textarea{min-height:96px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:14px}
-input:focus,textarea:focus,select:focus,button:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
-button{width:100%;padding:13px;margin-top:12px;font:inherit;font-weight:600;color:var(--accink);background:var(--acc);border:0;border-radius:10px;cursor:pointer}
+input:focus,textarea:focus,select:focus{outline:0;border-color:var(--acc);box-shadow:0 0 0 3px rgba(31,90,246,.18)}
+button:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+input[type=checkbox]{width:auto;margin-right:8px}
+button{width:100%;padding:14px;margin-top:12px;font:inherit;font-weight:600;color:var(--accink);background:var(--acc);border:0;border-radius:14px;cursor:pointer;transition:transform .15s ease,filter .2s ease,background .2s ease}
+button:hover{filter:brightness(1.06)}button:active{transform:scale(.98)}
 button:disabled{opacity:.5;cursor:default}
-button.alt{background:transparent;color:var(--ink);border:1px solid var(--line)}
-button.danger{color:var(--bad);border-color:var(--bad)}
-button.sm{width:auto;padding:8px 14px;font-size:14px;margin-top:8px}
-.top{display:flex;justify-content:space-between;align-items:center}
-.top button{margin:0}
-.addr,.bal{-webkit-user-select:all;user-select:all;font-family:ui-monospace,Menlo,Consolas,monospace;word-break:break-all}
-.bal{font-size:24px;font-weight:700}
+button.alt{background:var(--sur);color:var(--ink)}
+button.danger{color:var(--bad)}
+button.sm{width:auto;padding:8px 14px;font-size:14px;margin-top:8px;border-radius:999px}
+.top{display:flex;justify-content:space-between;align-items:center;margin:4px 0 14px}
+.brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:18px}
+.brand svg{width:30px;height:30px;stroke:none}
+.welcome{text-align:center;padding:34px 0 6px}
+.bigmark svg{width:76px;height:76px;stroke:none;filter:drop-shadow(0 14px 20px rgba(31,90,246,.35))}
+.addr,.bal{font-family:ui-monospace,Menlo,Consolas,monospace;word-break:break-all}
 .words{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:14px 0}
-.words span{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px;font-family:ui-monospace,Menlo,Consolas,monospace}
+.words span{background:var(--card);border-radius:12px;padding:10px;font-family:ui-monospace,Menlo,Consolas,monospace;box-shadow:var(--sh)}
 .words i{color:var(--mute);font-style:normal;margin-right:8px;font-size:13px}
 .msg{margin-top:10px;font-size:14px;word-break:break-word}.err{color:var(--bad)}.ok{color:var(--ok)}
-a{color:var(--acc)}
-.tk{display:grid;grid-template-columns:1fr auto;gap:6px 10px;align-items:center;padding:10px 0;border-bottom:1px solid var(--line)}.tk .tb{font-family:ui-monospace,Menlo,Consolas,monospace;font-weight:700;text-align:right}.tk a{grid-column:1/-1;font-size:14px}.tk .sm{grid-column:1/-1;justify-self:start;margin-top:0}
+a{color:var(--link);font-weight:600;text-decoration:none}
+.hdr{display:flex;justify-content:space-between;align-items:center;margin:2px 0 14px}
+.pill{display:flex;align-items:center;gap:8px;width:auto;margin:0;padding:8px 12px;border-radius:999px;background:var(--card);color:var(--ink);font-size:14px;box-shadow:var(--sh);max-width:62%}
+.pill i{width:10px;height:10px;border-radius:50%;flex:none}
+.pill svg{width:16px;height:16px;flex:none}
+.bc{position:relative;overflow:hidden;color:#fff;border-radius:26px;padding:18px;background:linear-gradient(135deg,#1f5af6 0%,#4a7dff 60%,#7ea0ff 100%);box-shadow:0 22px 34px -18px rgba(31,90,246,.7)}
+.bc:after{content:"";position:absolute;right:-50px;bottom:-70px;width:220px;height:220px;border-radius:50%;background:rgba(255,255,255,.12)}
+.bc>*{position:relative;z-index:1}
+.bt1{display:flex;justify-content:space-between;align-items:center}
+.acc{display:flex;align-items:center;gap:10px}
+.avt{width:40px;height:40px;border-radius:50%;border:2px solid rgba(255,255,255,.6)}
+.an{font-weight:600;line-height:1.2}
+.ad{width:auto;margin:0;padding:0;background:none;color:rgba(255,255,255,.8);font-size:13px;font-weight:500;font-family:ui-monospace,Menlo,Consolas,monospace}
+.ib{width:40px;height:40px;margin:0;padding:0;border-radius:50%;background:rgba(255,255,255,.18);color:#fff;display:grid;place-items:center}
+.ib svg,.ti svg{width:20px;height:20px}
+.bl{margin:20px 0 4px}.bl span{font-size:13px;opacity:.85}
+.bv{font-size:36px;font-weight:700;letter-spacing:-.02em;word-break:break-word;line-height:1.15}
+.bv small{font-size:17px;opacity:.85;font-weight:600}
+.ac{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:18px}
+.ab{display:flex;flex-direction:column;align-items:center;gap:4px;margin:0;padding:12px 6px;background:rgba(255,255,255,.2);color:#fff;border-radius:16px;font-size:13px}
+.ab svg{width:20px;height:20px}
+.tabs{display:flex;gap:4px;background:var(--sur);padding:4px;border-radius:16px;margin:18px 0 12px}
+.tabs button{flex:1;margin:0;padding:10px 4px;background:none;color:var(--mute);border-radius:12px;font-size:14px}
+.tabs button.on{background:var(--card);color:var(--ink);box-shadow:var(--sh)}
+.list{background:var(--card);border-radius:18px;padding:2px 14px;box-shadow:var(--sh)}
+.row{display:flex;align-items:center;gap:12px;padding:14px 0;border-bottom:1px solid var(--line)}
+.list>.row:last-child,.list #tk>.row:last-child{border-bottom:0}
+.ti{width:42px;height:42px;border-radius:50%;display:grid;place-items:center;flex:none;color:#fff;font-weight:700}
+.ti.in{background:rgba(22,163,74,.15);color:var(--ok)}
+.ti.out{background:var(--sur);color:var(--ink)}
+.ti.eth{background:#627eea}
+.rm{flex:1;min-width:0;display:flex;flex-direction:column;line-height:1.3}
+.rm span{font-size:12px;color:var(--mute)}
+.rb{text-align:right;font-weight:600;font-variant-numeric:tabular-nums;word-break:break-all}
+.rb.pos{color:var(--ok)}
+.tl{width:auto;margin:2px 0 0;padding:0;background:none;color:var(--mute);font-size:12px;font-weight:500;text-align:left}
+.vl{font-size:12px}
+.lnk{background:var(--card);color:var(--link);box-shadow:var(--sh);margin-top:12px}
+.srow{display:flex;justify-content:space-between;align-items:center;text-align:left;background:var(--card);color:var(--ink);margin:10px 0 0;font-weight:500;box-shadow:var(--sh)}
+.srow.dng{color:var(--bad)}
+.bar{display:flex;align-items:center;justify-content:space-between;margin:2px 0 10px}
+.bt{font-weight:700;font-size:17px}
+.back{width:40px;height:40px;margin:0;padding:0;border-radius:50%;background:var(--card);color:var(--ink);display:grid;place-items:center;box-shadow:var(--sh)}
+.back svg{width:22px;height:22px}.sp{width:40px}
+.fm{padding-top:4px}
+.in2{display:flex;gap:8px}.in2 input{flex:1}
+.pb{width:auto;margin:0;padding:0 16px;background:var(--sur);color:var(--link)}
+.nrow{display:flex;align-items:center;background:var(--card);border-radius:16px;margin:8px 0;box-shadow:var(--sh)}
+.nsel{display:flex;align-items:center;gap:12px;flex:1;margin:0;background:none;color:var(--ink);text-align:left;font-weight:500;min-width:0}
+.nd{width:34px;height:34px;border-radius:50%;flex:none}
+.nsel span:nth-child(2){display:flex;flex-direction:column;line-height:1.3;min-width:0}
+.nsel small{color:var(--mute);font-weight:400}
+.chk{color:var(--acc);font-weight:700;margin-left:auto}
+.nrm{width:auto;margin:0 12px 0 0;padding:6px 10px;background:none;color:var(--bad);font-size:13px}
+.cfm{text-align:center;padding:14px 0 6px}
+.ca{font-size:36px;font-weight:700;word-break:break-word}.ca small{font-size:18px;color:var(--mute)}
+.kv{display:flex;justify-content:space-between;gap:16px;padding:13px 0;border-bottom:1px solid var(--line);font-size:14px}
+.kv span{color:var(--mute);flex:none}.kv b{text-align:right;font-weight:600;min-width:0}
+.rcv{text-align:center;padding-top:10px}
+.qrbox{display:inline-block;background:#fff;padding:14px;border-radius:20px;line-height:0;box-shadow:var(--sh)}
+.stage{text-align:center;padding-top:36px}
+.sico{position:relative;width:96px;height:96px;margin:30px auto 22px}
+.ring{position:absolute;inset:0;border-radius:50%;border:4px solid var(--sur);border-top-color:var(--acc);animation:spin 1s linear infinite}
+.arr{position:absolute;left:28px;top:28px;width:40px;height:40px;color:var(--acc);animation:rise 1.3s ease-in-out infinite}
+.ck,.xx{position:absolute;inset:0;width:96px;height:96px;display:none;stroke-width:3}
+.ck{color:var(--ok)}.xx{color:var(--bad)}
+.ck circle,.xx circle{stroke-dasharray:152;stroke-dashoffset:152;animation:draw .6s ease forwards}
+.ck path,.xx path{stroke-dasharray:50;stroke-dashoffset:50;animation:draw .4s .5s ease forwards}
+[data-k=ok] .ring,[data-k=ok] .arr,[data-k=fail] .ring,[data-k=fail] .arr{display:none}
+[data-k=ok] .ck,[data-k=fail] .xx{display:block}
+[data-k=wait] .ring{animation-duration:1.8s}
+[data-k=pend] .ring,[data-k=pend] .arr{animation:none}
+.st{font-size:22px;font-weight:700}.ss{color:var(--mute);margin:4px 0 18px;word-break:break-word}
+.steps{display:flex;justify-content:center;gap:18px;margin:6px 0 14px;font-size:12px;color:var(--mute)}
+.steps div{display:flex;align-items:center;gap:6px}
+.steps i{width:10px;height:10px;border-radius:50%;background:var(--sur)}
+.steps .on{color:var(--ink)}.steps .on i{background:var(--ok)}
+.steps .cur i{background:var(--acc);animation:pulse 1.2s ease-in-out infinite}
+@keyframes fade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes rise{0%,100%{transform:translateY(4px);opacity:.55}50%{transform:translateY(-4px);opacity:1}}
+@keyframes draw{to{stroke-dashoffset:0}}
+@keyframes pulse{50%{opacity:.35}}
+@media(prefers-reduced-motion:reduce){*{animation-duration:.01s!important;animation-iteration-count:1!important;transition:none!important}}
 </style>
 </head>
 <body>
@@ -43,12 +133,28 @@ a{color:var(--acc)}
 <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
 <script>
 const $ = s => document.querySelector(s);
-const NETS = {
-  sepolia: { name: 'Sepolia (test network)', id: 11155111, rpc: 'https://ethereum-sepolia-rpc.publicnode.com', sym: 'SepETH', scan: 'https://sepolia.etherscan.io' },
-  mainnet: { name: 'Ethereum Mainnet (real money)', id: 1, rpc: 'https://ethereum-rpc.publicnode.com', sym: 'ETH', scan: 'https://etherscan.io' }
+const BUILTIN = {
+  mainnet: { name: 'Ethereum', id: 1, rpc: 'https://ethereum-rpc.publicnode.com', sym: 'ETH', scan: 'https://etherscan.io', c: '#627eea' },
+  bsc: { name: 'BNB Smart Chain', id: 56, rpc: 'https://bsc-rpc.publicnode.com', sym: 'BNB', scan: 'https://bscscan.com', c: '#f0b90b' },
+  polygon: { name: 'Polygon', id: 137, rpc: 'https://polygon-bor-rpc.publicnode.com', sym: 'POL', scan: 'https://polygonscan.com', c: '#8247e5' },
+  arbitrum: { name: 'Arbitrum One', id: 42161, rpc: 'https://arbitrum-one-rpc.publicnode.com', sym: 'ETH', scan: 'https://arbiscan.io', c: '#28a0f0' },
+  optimism: { name: 'Optimism', id: 10, rpc: 'https://optimism-rpc.publicnode.com', sym: 'ETH', scan: 'https://optimistic.etherscan.io', c: '#ff0420' },
+  base: { name: 'Base', id: 8453, rpc: 'https://base-rpc.publicnode.com', sym: 'ETH', scan: 'https://basescan.org', c: '#0052ff' },
+  avalanche: { name: 'Avalanche C-Chain', id: 43114, rpc: 'https://avalanche-c-chain-rpc.publicnode.com', sym: 'AVAX', scan: 'https://snowtrace.io', c: '#e84142' },
+  sepolia: { name: 'Sepolia', id: 11155111, rpc: 'https://ethereum-sepolia-rpc.publicnode.com', sym: 'SepETH', scan: 'https://sepolia.etherscan.io', test: 1, c: '#627eea' },
+  bsctest: { name: 'BNB Testnet', id: 97, rpc: 'https://bsc-testnet-rpc.publicnode.com', sym: 'tBNB', scan: 'https://testnet.bscscan.com', test: 1, c: '#f0b90b' },
+  amoy: { name: 'Polygon Amoy', id: 80002, rpc: 'https://polygon-amoy-bor-rpc.publicnode.com', sym: 'POL', scan: 'https://amoy.polygonscan.com', test: 1, c: '#8247e5' },
+  basesep: { name: 'Base Sepolia', id: 84532, rpc: 'https://base-sepolia-rpc.publicnode.com', sym: 'SepETH', scan: 'https://sepolia.basescan.org', test: 1, c: '#0052ff' }
 };
+const NKEY = 'mywallet.nets.v1';
+let NETS = {};
+function customNets() { try { return JSON.parse(localStorage.getItem(NKEY)) || []; } catch { return []; } }
+function buildNets() { NETS = { ...BUILTIN }; customNets().forEach(n => { NETS['c' + n.id] = n; }); }
 const KEY = 'mywallet.v1';
 let wallet = null, net = 'sepolia', timer = null, temp = {};
+buildNets();
+try { const k = localStorage.getItem('mywallet.net'); if (k && NETS[k]) net = k; } catch {}
+function setNet(k) { net = k; try { localStorage.setItem('mywallet.net', k); } catch {} }
 const enc = new TextEncoder(), dec = new TextDecoder();
 const b64 = b => btoa(String.fromCharCode(...new Uint8Array(b)));
 const unb64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
@@ -58,7 +164,11 @@ const save = v => { try { localStorage.setItem(KEY, JSON.stringify(v)); return t
 const mk = s => s.t === 'm' ? ethers.Wallet.fromPhrase(s.v) : new ethers.Wallet(s.v);
 const wait = () => new Promise(r => setTimeout(r, 40));
 
-function show(h) { $('#app').innerHTML = h; window.scrollTo(0, 0); }
+const LOGO = '<svg viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5b8cff"/><stop offset="1" stop-color="#1f5af6"/></linearGradient></defs><rect width="32" height="32" rx="10" fill="url(#lg)"/><path d="M11 9h6a7 7 0 010 14h-6z" fill="none" stroke="#fff" stroke-width="3" stroke-linejoin="round"/></svg>';
+function show(h, right) {
+  const bar = right === null ? '' : '<div class="top"><div class="brand">' + LOGO + '<span>Dorax</span></div>' + (right || '') + '</div>';
+  $('#app').innerHTML = '<div class="pg">' + bar + h + '</div>'; window.scrollTo(0, 0);
+}
 function msg(id, t, ok) { const e = $('#' + id); if (e) { e.textContent = t; e.className = 'msg ' + (ok ? 'ok' : 'err'); } }
 async function copyText(t, btn) {
   let ok = false;
@@ -94,11 +204,11 @@ async function openSeal(r, pw) {
 function home() {
   const s = load();
   if (s && s.ct) return unlockView();
-  show(`<h1>My Wallet</h1><p class="sub">Self-custody. Your keys never leave this device.</p>
+  show(`<div class="welcome"><div class="bigmark">${LOGO}</div><h1>Dorax Wallet</h1><p class="sub">A self-custody wallet. Your keys stay on this device. No account, no server holding your funds.</p></div>
   <div class="card"><button onclick="createView()">Create new wallet</button>
   <button class="alt" onclick="importView()">Import recovery phrase or private key</button>
   <button class="alt" onclick="restoreView()">Restore from encrypted backup</button></div>
-  <p class="note">Practice on Sepolia first. Do not keep real funds here until the app has had a security review.</p>`);
+  <p class="note">Practice on Sepolia first. Do not keep real funds here until the app has had a security review.</p>`, null);
 }
 
 function createView() {
@@ -167,12 +277,12 @@ async function importDo() {
 
 function unlockView() {
   const s = load();
-  show(`<h1>My Wallet</h1><p class="sub addr">${esc(s.address)}</p><div class="card">
+  show(`<div class="welcome"><div class="bigmark">${LOGO}</div><h1>Welcome back</h1><p class="sub addr" style="user-select:none">${esc(short(s.address))}</p></div><div class="card">
   <label>Password</label><input id="pw" type="password" autocomplete="current-password">
   <button onclick="unlock()">Unlock</button><div id="m"></div></div>
   <div class="card"><h2>Forgot the password?</h2>
   <p class="note">The password cannot be reset. Import your recovery phrase again and choose a new one.</p>
-  <button class="alt" onclick="importView()">Import recovery phrase</button></div>`);
+  <button class="alt" onclick="importView()">Import recovery phrase</button></div>`, null);
 }
 async function unlock() {
   msg('m', 'Unlocking...', 1); await wait();
@@ -183,7 +293,7 @@ function lock() { wallet = null; clearTimeout(timer); unlockView(); }
 function arm() { clearTimeout(timer); timer = setTimeout(lock, 300000); }
 ['click', 'touchstart', 'keydown'].forEach(e => document.addEventListener(e, () => { if (wallet) arm(); }, { passive: true }));
 
-const ERC20 = ['function symbol() view returns (string)', 'function decimals() view returns (uint8)', 'function balanceOf(address) view returns (uint256)', 'function transfer(address,uint256) returns (bool)'];
+const ERC20 = ['function name() view returns (string)', 'function symbol() view returns (string)', 'function decimals() view returns (uint8)', 'function balanceOf(address) view returns (uint256)', 'function transfer(address,uint256) returns (bool)'];
 const TKEY = 'mywallet.tokens.v1';
 const DEFAULTS = { 11155111: [{ a: '0xf884e202ba30181B4c32FDdd6390F15816da0b4A', s: 'DRX', d: 18 }, { a: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238', s: 'USDC', d: 6 }] };
 function allTokens() { try { return JSON.parse(localStorage.getItem(TKEY)) || {}; } catch { return {}; } }
@@ -194,11 +304,12 @@ const hist = () => { try { return JSON.parse(localStorage.getItem(HKEY)) || []; 
 const putHist = l => { try { localStorage.setItem(HKEY, JSON.stringify(l)); } catch {} };
 const addHist = h => putHist([h, ...hist()].slice(0, 50));
 function setHist(hash, st) { const l = hist(), x = l.find(i => i.h === hash); if (x) { x.st = st; putHist(l); } }
+const fmt = v => { const [i, d = ''] = String(v).split('.'), t = d.slice(0, 6).replace(/0+$/, ''); return t ? i + '.' + t : (i === '0' && /[1-9]/.test(d) ? '<0.000001' : i); };
 const short = a => a.slice(0, 8) + '...' + a.slice(-6);
 function renderHist() {
   const b = $('#hs'); if (!b || !wallet) return;
-  const id = NETS[net].id, l = hist().filter(h => h.c === id && h.f === wallet.address).sort((x, y) => y.t - x.t).slice(0, 15);
-  b.innerHTML = l.length ? l.map(h => { const inn = h.d === 'in'; return `<div class="tk"><div><b>${inn ? '+' : '-'}${esc(h.a)} ${esc(h.s)}</b><div class="note addr" style="margin:0;font-size:12px">${inn ? 'from' : 'to'} ${esc(short(inn ? h.from : h.to))}</div><div class="note" style="margin:0;font-size:12px">${esc(new Date(h.t).toLocaleString())}</div></div><div class="tb">${inn ? 'Received' : h.st === 'ok' ? 'Confirmed' : h.st === 'fail' ? 'Failed' : 'Pending'}</div><a href="${NETS[net].scan}/tx/${esc(h.h)}" target="_blank" rel="noopener">View on Etherscan</a></div>`; }).join('') : '<p class="note">No transactions yet.</p>';
+  const id = NETS[net].id, l = hist().filter(h => h.c === id && h.f === wallet.address).sort((x, y) => y.t - x.t).slice(0, 20);
+  b.innerHTML = l.length ? l.map(h => { const inn = h.d === 'in', st = inn ? 'Received' : h.st === 'ok' ? 'Confirmed' : h.st === 'fail' ? 'Failed' : 'Pending'; return `<div class="row"><div class="ti ${inn ? 'in' : 'out'}">${inn ? IC.down : IC.up}</div><div class="rm"><b>${inn ? 'Received' : 'Sent'}</b><span>${inn ? 'From' : 'To'} ${esc(short(inn ? h.from : h.to))}</span><span>${esc(new Date(h.t).toLocaleString())} &middot; ${st}</span>${NETS[net].scan ? `<a class="vl" href="${NETS[net].scan}/tx/${esc(h.h)}" target="_blank" rel="noopener">View on explorer</a>` : ''}</div><div class="rb ${inn ? 'pos' : ''}">${inn ? '+' : '-'}${esc(fmt(h.a))} ${esc(h.s)}</div></div>`; }).join('') : '<p class="note" style="padding:16px 0 2px">No transactions yet.</p>';
 }
 async function checkPending() {
   if (!wallet) return;
@@ -236,6 +347,7 @@ async function syncTokens() {
 }
 async function syncEth() {
   const base = EXPL[NETS[net].id], me = wallet.address;
+  if (!base) return null;
   try {
     const r = await fetch(base + '/api/v2/addresses/' + me + '/transactions?filter=to');
     if (!r.ok) return false;
@@ -254,46 +366,99 @@ async function syncHistory() {
   const t = await syncTokens(), e = await syncEth();
   syncing = false;
   renderHist();
-  const n = $('#hn'); if (n) n.textContent = (t && e) ? '' : 'Some incoming transfers could not be checked right now (' + [!t && 'tokens', !e && 'ETH'].filter(Boolean).join(', ') + '). Pull to refresh later.';
+  const n = $('#hn'); if (n) n.textContent = e === null ? (t ? 'Incoming ' + NETS[net].sym + ' transfers are not tracked on this network. Token transfers are.' : 'Incoming transfers could not be checked right now.') : (t && e) ? '' : 'Some incoming transfers could not be checked right now (' + [!t && 'tokens', !e && NETS[net].sym].filter(Boolean).join(', ') + ').';
 }
-function showQR() {
+function drawQR() {
   const b = $('#qr'); if (!b) return;
-  if (b.innerHTML) { b.innerHTML = ''; return; }
-  if (!window.qrcode) { b.innerHTML = '<p class="note">The QR library could not load.</p>'; return; }
+  if (!window.qrcode) { b.innerHTML = '<p class="note" style="line-height:1.4;padding:10px">QR library could not load. Copy the address instead.</p>'; return; }
   const q = qrcode(0, 'M'); q.addData(wallet.address); q.make();
-  b.innerHTML = '<div style="background:#fff;padding:12px;border-radius:12px;display:inline-block;line-height:0;margin-top:12px">' + q.createSvgTag(7, 0) + '</div><p class="note">Scan to receive. The same address works on all Ethereum-style networks, so make sure the sender picks the right one.</p>';
+  b.innerHTML = q.createSvgTag(6, 0);
 }
 document.addEventListener('visibilitychange', () => { if (!document.hidden && wallet) checkPending(); });
 const prov = () => { const n = NETS[net]; return new ethers.JsonRpcProvider(n.rpc, n.id, { staticNetwork: ethers.Network.from(n.id) }); };
 
+const IC = {
+  up: '<svg viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg>',
+  down: '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12l7 7 7-7"/></svg>',
+  copy: '<svg viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 012-2h9"/></svg>',
+  lock: '<svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 018 0v3"/></svg>',
+  back: '<svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>',
+  chev: '<svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg>',
+  eth: '<svg viewBox="0 0 24 24" style="fill:#fff;stroke:none"><path d="M12 2l6 10-6 3.5L6 12zM12 16.7l6-3.5L12 22 6 13.2z"/></svg>'
+};
+let tab = 'assets';
+function sub(title, body, back) {
+  show(`<div class="bar"><button class="back" onclick="${back || 'mainView()'}" aria-label="Back">${IC.back}</button><div class="bt">${title}</div><span class="sp"></span></div>${body}`, null);
+}
+function setTab(t) {
+  tab = t;
+  ['assets', 'activity', 'settings'].forEach(k => { const p = $('#p-' + k), b = $('#t-' + k); if (p) p.hidden = k !== t; if (b) b.classList.toggle('on', k === t); });
+}
 function mainView() {
   arm();
-  show(`<div class="top"><h1>My Wallet</h1><button class="sm alt" onclick="lock()">Lock</button></div>
-  <select id="net" onchange="net=this.value;mainView()">${Object.entries(NETS).map(([k, n]) => `<option value="${k}" ${k === net ? 'selected' : ''}>${n.name}</option>`).join('')}</select>
-  ${net === 'mainnet' ? '<div class="card warn">Mainnet uses real money. Check every address twice.</div>' : ''}
-  <div class="card"><label>Your address (share it to receive)</label><div class="addr">${wallet.address}</div>
-  <button class="sm" onclick="copyText('${wallet.address}', this)">Copy address</button> <button class="sm alt" onclick="showQR()">QR code</button><div id="qr" style="text-align:center"></div>
-  <label>Balance</label><div class="bal" id="bal">...</div>
-  <button class="sm alt" onclick="refresh()">Refresh</button></div>
-  <div class="card"><h2>Tokens</h2><div id="tk"></div>
-  <label>Add token (contract address)</label><input id="ta" autocomplete="off" spellcheck="false" placeholder="0x...">
-  <button class="alt" onclick="addToken()">Add token</button><div id="tm"></div>
-  <p class="note">Anyone can create a token with any name, even a fake "USDC". Add only addresses from the official source.</p></div>
-  <div class="card"><h2>Send</h2>
-  <label>Asset</label><select id="as"><option value="">${NETS[net].sym}</option>${tokens().map(t => `<option value="${esc(t.a)}">${esc(t.s)}</option>`).join('')}</select>
-  <label>To address</label><input id="to" autocomplete="off" spellcheck="false" placeholder="0x...">
-  <label>Amount</label><input id="amt" inputmode="decimal" placeholder="0.001">
-  <button onclick="sendPrep()">Review</button><div id="m"></div></div>
-  <div class="card"><h2>Recent activity</h2><div id="hs"></div><p class="note" id="hn"></p><p class="note">Shows what you sent from this app and what you received (tokens via the network, ETH via the Blockscout explorer).</p></div>
-  <div class="card"><h2>Security</h2>
-  <button class="alt" onclick="secView()">Show recovery phrase and private key</button>
-  <button class="alt" onclick="backupView()">Export encrypted backup</button>
-  <button class="alt danger" onclick="wipeView()">Remove wallet from this device</button></div>`);
-  refresh(); renderHist(); checkPending();
+  const n = NETS[net], hue = parseInt(wallet.address.slice(2, 8), 16) % 360;
+  show(`<div class="hdr"><div class="brand">${LOGO}<span>Dorax</span></div><button class="pill" onclick="networksView()"><i style="background:${n.c || '#6b7a99'}"></i><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(n.name)}</span>${IC.chev}</button></div>
+  ${n.test ? '' : `<div class="card warn" style="margin:0 0 12px">${esc(n.name)} is a real-money network. Check every address twice.</div>`}
+  <section class="bc"><div class="bt1"><div class="acc"><div class="avt" style="background:linear-gradient(135deg,hsl(${hue} 80% 65%),hsl(${(hue + 60) % 360} 80% 50%))"></div><div><div class="an">Account 1</div><button class="ad" onclick="copyText('${wallet.address}', this)">${short(wallet.address)}</button></div></div><button class="ib" onclick="lock()" aria-label="Lock">${IC.lock}</button></div>
+  <div class="bl"><span>Balance</span><div class="bv" id="bal">...</div></div>
+  <div class="ac"><button class="ab" onclick="sendView()">${IC.up}<span>Send</span></button><button class="ab" onclick="receiveView()">${IC.down}<span>Receive</span></button><button class="ab" onclick="copyText('${wallet.address}', this.querySelector('span'))">${IC.copy}<span>Copy</span></button></div></section>
+  <div class="tabs"><button id="t-assets" onclick="setTab('assets')">Assets</button><button id="t-activity" onclick="setTab('activity')">Activity</button><button id="t-settings" onclick="setTab('settings')">Settings</button></div>
+  <div id="p-assets"><div class="list"><div class="row"><div class="ti" style="background:${n.c || '#6b7a99'}">${esc(n.sym.slice(0, 1))}</div><div class="rm"><b>${esc(n.sym)}</b><span>${esc(n.name)}</span></div><div class="rb" id="nb">...</div></div><div id="tk"></div></div><button class="lnk" onclick="addView()">+ Add token</button></div>
+  <div id="p-activity"><div class="list" id="hs"></div><p class="note" id="hn" style="margin-top:12px"></p><p class="note">Shows what you sent from this app and what you received.</p></div>
+  <div id="p-settings"><button class="srow" style="margin-top:0" onclick="networksView()">Networks <span>&rsaquo;</span></button><button class="srow" onclick="secView()">Recovery phrase and private key <span>&rsaquo;</span></button><button class="srow" onclick="backupView()">Export encrypted backup <span>&rsaquo;</span></button><button class="srow" onclick="lock()">Lock wallet <span>&rsaquo;</span></button><button class="srow dng" onclick="wipeView()">Remove wallet from this device</button><p class="note" style="margin-top:16px">Dorax Wallet. Non-custodial: your keys never leave this device.</p></div>`, null);
+  setTab(tab); refresh(); renderHist(); checkPending();
+}
+function pickNet(k) { if (!NETS[k]) return; setNet(k); tab = 'assets'; if (wallet) mainView(); else home(); }
+function networksView() {
+  const row = ([k, n]) => `<div class="nrow"><button class="nsel" onclick="pickNet('${k}')"><span class="nd" style="background:${n.c || '#6b7a99'}"></span><span><b>${esc(n.name)}</b><small>Chain ID ${n.id} &middot; ${esc(n.sym)}</small></span>${k === net ? '<span class="chk">&#10003;</span>' : ''}</button>${k[0] === 'c' ? `<button class="nrm" onclick="rmNet('${k}')">Remove</button>` : ''}</div>`;
+  const all = Object.entries(NETS);
+  sub('Networks', `<h2>Networks</h2>${all.filter(([, n]) => !n.test).map(row).join('')}<h2 style="margin-top:18px">Test networks</h2>${all.filter(([, n]) => n.test).map(row).join('')}<button class="alt" onclick="netAddView()">+ Add custom network</button><p class="note" style="margin-top:14px">Every network uses the same wallet address and recovery phrase. Non-EVM chains such as Bitcoin or Solana are not supported yet.</p>`);
+}
+function netAddView() {
+  sub('Add network', `<div class="fm"><label>Network name</label><input id="nn" autocomplete="off" placeholder="My Network"><label>RPC URL</label><input id="nr" autocomplete="off" spellcheck="false" placeholder="https://..."><label>Chain ID</label><input id="ni" inputmode="numeric" placeholder="1337"><label>Currency symbol</label><input id="ns" autocomplete="off" placeholder="ETH"><label>Block explorer URL (optional)</label><input id="ne" autocomplete="off" spellcheck="false" placeholder="https://..."><label style="display:flex;align-items:center;margin-top:16px"><input type="checkbox" id="nt">This is a test network</label><button onclick="netAddDo()">Add network</button><div id="m"></div><p class="note" style="margin-top:14px">Only add RPC servers you trust. An RPC can see your address and balances.</p></div>`, 'networksView()');
+}
+async function netAddDo() {
+  const name = $('#nn').value.trim(), rpc = $('#nr').value.trim(), id = Number($('#ni').value), sym = $('#ns').value.trim(), scan = $('#ne').value.trim().replace(/\/$/, ''), test = $('#nt').checked;
+  if (!/^[\w .+()-]{1,32}$/.test(name) || !/^[\w.+-]{1,10}$/.test(sym)) return msg('m', 'Use a short name and symbol (letters, numbers, space, dot, dash).');
+  if (!/^https:\/\/[^\s"'<>]+$/.test(rpc)) return msg('m', 'The RPC URL must start with https://');
+  if (scan && !/^https:\/\/[^\s"'<>]+$/.test(scan)) return msg('m', 'The explorer URL must start with https://');
+  if (!Number.isInteger(id) || id < 1) return msg('m', 'Enter a valid chain ID.');
+  if (Object.values(NETS).some(n => n.id === id)) return msg('m', 'A network with this chain ID already exists.');
+  msg('m', 'Checking the RPC...', 1);
+  try {
+    const r = await fetch(rpc, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_chainId', params: [] }) });
+    const got = parseInt((await r.json()).result, 16);
+    if (got !== id) return msg('m', 'This RPC reports chain ID ' + got + ', not ' + id + '.');
+  } catch { return msg('m', 'Could not reach this RPC.'); }
+  const l = customNets(); l.push({ name, id, rpc, sym, scan, test, c: '#6b7a99' });
+  try { localStorage.setItem(NKEY, JSON.stringify(l)); } catch {}
+  buildNets(); pickNet('c' + id);
+}
+function rmNet(k) {
+  if (!confirm('Remove this network from the list? Your funds are not affected.')) return;
+  try { localStorage.setItem(NKEY, JSON.stringify(customNets().filter(n => 'c' + n.id !== k))); } catch {}
+  buildNets(); if (net === k) setNet('sepolia'); networksView();
+}
+function receiveView() {
+  sub('Receive', `<div class="rcv"><div class="qrbox" id="qr"></div><p class="note" style="margin-top:14px">Scan to receive</p><div class="addr" style="font-size:14px;padding:0 8px">${wallet.address}</div><button onclick="copyText('${wallet.address}', this)">Copy address</button><p class="note" style="margin-top:14px">Network: ${esc(NETS[net].name)}. The same address works on all Ethereum-style networks, so the sender must pick the right one.</p></div>`);
+  drawQR();
+}
+function addView() {
+  sub('Add token', `<div class="fm"><div class="row" style="border:0;padding:0 0 4px"><div class="ti" style="background:${NETS[net].c || '#6b7a99'}">${esc(NETS[net].sym.slice(0, 1))}</div><div class="rm"><b>${esc(NETS[net].name)}</b><span>Tokens are added per network. Change the network on the home screen first.</span></div></div><label>Token contract address</label><input id="ta" autocomplete="off" spellcheck="false" placeholder="0x..."><button onclick="lookupToken()">Look up token</button><div id="tm"></div><p class="note" style="margin-top:14px">Anyone can create a token with any name, even a fake "USDC". Add only addresses from the official source.</p></div>`);
+}
+function sendView() {
+  const f = temp.form || {};
+  sub('Send', `<div class="fm"><p class="note" style="margin:0">Network: <b>${esc(NETS[net].name)}</b></p><label>Asset</label><select id="as"><option value="">${esc(NETS[net].sym)}</option>${tokens().map(t => `<option value="${esc(t.a)}" ${t.a === f.as ? 'selected' : ''}>${esc(t.s)}</option>`).join('')}</select>
+  <label>Recipient address</label><div class="in2"><input id="to" autocomplete="off" spellcheck="false" placeholder="0x..." value="${esc(f.to || '')}"><button class="pb" onclick="pasteTo()">Paste</button></div>
+  <label>Amount</label><input id="amt" inputmode="decimal" placeholder="0.0" value="${esc(f.amt || '')}">
+  <button onclick="sendPrep()">Continue</button><div id="m"></div></div>`);
+}
+async function pasteTo() {
+  try { $('#to').value = (await navigator.clipboard.readText()).trim(); } catch { msg('m', 'Paste is not allowed here. Press and hold in the field to paste.'); }
 }
 async function refresh() {
   const p = prov();
-  try { $('#bal').textContent = ethers.formatEther(await p.getBalance(wallet.address)) + ' ' + NETS[net].sym; }
+  try { const v = fmt(ethers.formatEther(await p.getBalance(wallet.address))); $('#bal').innerHTML = esc(v) + ' <small>' + NETS[net].sym + '</small>'; const nb = $('#nb'); if (nb) nb.textContent = v; }
   catch { const b = $('#bal'); if (b) b.textContent = 'Could not load. Check your connection and refresh.'; }
   p.destroy();
   refreshTokens(); syncHistory();
@@ -303,33 +468,35 @@ async function refreshTokens() {
   const box = $('#tk'); if (!box) return;
   const list = tokens();
   if (!list.length) { box.innerHTML = '<p class="note">No tokens added on this network.</p>'; return; }
-  box.innerHTML = list.map((t, i) => `<div class="tk"><div><b>${esc(t.s)}</b><div class="note addr" style="margin:0;font-size:12px">${esc(t.a)}</div></div><div class="tb" id="tb${i}">...</div><button class="sm alt danger" onclick="rmToken(${i})">Remove</button></div>`).join('');
+  box.innerHTML = list.map((t, i) => `<div class="row"><div class="ti" style="background:hsl(${(t.s.charCodeAt(0) * 47) % 360} 55% 48%)">${esc(t.s.slice(0, 1))}</div><div class="rm"><b>${esc(t.s)}</b><span>${esc(short(t.a))}</span><button class="tl" onclick="rmToken(${i})">Remove</button></div><div class="rb" id="tb${i}">...</div></div>`).join('');
   const p = prov();
   await Promise.all(list.map(async (t, i) => {
-    try { const b = await new ethers.Contract(t.a, ERC20, p).balanceOf(wallet.address); const e = $('#tb' + i); if (e) e.textContent = ethers.formatUnits(b, t.d); }
+    try { const b = await new ethers.Contract(t.a, ERC20, p).balanceOf(wallet.address); const e = $('#tb' + i); if (e) e.textContent = fmt(ethers.formatUnits(b, t.d)); }
     catch { const e = $('#tb' + i); if (e) e.textContent = '?'; }
   }));
   p.destroy();
 }
-async function addToken() {
+async function lookupToken() {
   const raw = $('#ta').value.trim();
   if (!ethers.isAddress(raw)) return msg('tm', 'That is not a valid contract address.');
   const a = ethers.getAddress(raw);
-  if (tokens().some(t => t.a === a)) return msg('tm', 'Token already added.');
-  msg('tm', 'Reading token...', 1);
+  if (tokens().some(t => t.a === a)) return msg('tm', 'This token is already in your list.');
+  msg('tm', 'Reading the token...', 1);
   const p = prov();
   try {
-    if ((await p.getCode(a)) === '0x') return msg('tm', 'No contract at this address on ' + NETS[net].name + '.');
+    if ((await p.getCode(a)) === '0x') return msg('tm', 'No contract at this address on ' + NETS[net].name + '. Check the network.');
     const c = new ethers.Contract(a, ERC20, p);
-    const [s, d] = await Promise.all([c.symbol(), c.decimals()]);
-    await c.balanceOf(wallet.address);
-    const dn = Number(d);
+    const [s, d, b] = await Promise.all([c.symbol(), c.decimals(), c.balanceOf(wallet.address)]);
+    let nm = ''; try { nm = await c.name(); } catch {}
+    const dn = Number(d), sy = String(s).slice(0, 12);
     if (!(dn >= 0 && dn <= 36)) throw 0;
-    saveTokens([...tokens(), { a, s: String(s).slice(0, 12), d: dn }]);
-    mainView();
+    temp.tkn = { a, s: sy, d: dn };
+    $('#tm').className = '';
+    $('#tm').innerHTML = `<div class="card"><div class="row" style="border:0"><div class="ti" style="background:hsl(${((sy.charCodeAt(0) || 65) * 47) % 360} 55% 48%)">${esc(sy.slice(0, 1))}</div><div class="rm"><b>${esc(sy)}</b><span>${esc(String(nm).slice(0, 40))}</span></div><div class="rb">${esc(fmt(ethers.formatUnits(b, dn)))}</div></div><div class="kv"><span>Contract</span><b class="addr">${esc(short(a))}</b></div><div class="kv"><span>Decimals</span><b>${dn}</b></div><div class="kv"><span>Network</span><b>${esc(NETS[net].name)}</b></div><button onclick="addToken()">Add to wallet</button></div>`;
   } catch { msg('tm', 'This does not look like a standard token on this network.'); }
   finally { p.destroy(); }
 }
+function addToken() { if (!temp.tkn) return; saveTokens([...tokens(), temp.tkn]); temp.tkn = null; tab = 'assets'; mainView(); }
 function rmToken(i) {
   if (!confirm('Remove this token from the list? Your tokens are not deleted.')) return;
   const l = tokens(); l.splice(i, 1); saveTokens(l); mainView();
@@ -337,11 +504,12 @@ function rmToken(i) {
 
 async function sendPrep() {
   const to = $('#to').value.trim(), amt = $('#amt').value.trim(), as = $('#as').value;
+  temp.form = { to, amt, as };
   const tk = as ? tokens().find(t => t.a === as) : null;
   const sym = tk ? tk.s : NETS[net].sym;
   if (!ethers.isAddress(to)) return msg('m', 'That is not a valid address.');
   let v; try { v = ethers.parseUnits(amt, tk ? tk.d : 18); if (v <= 0n) throw 0; } catch { return msg('m', 'Enter an amount greater than 0.'); }
-  msg('m', 'Estimating fee...', 1);
+  msg('m', 'Checking balance and fee...', 1);
   const p = prov();
   try {
     const f = await p.getFeeData(), ethBal = await p.getBalance(wallet.address);
@@ -354,12 +522,13 @@ async function sendPrep() {
     const fee = (f.maxFeePerGas ?? f.gasPrice) * gas;
     if (ethBal < fee + (tk ? 0n : v)) return msg('m', 'Not enough ' + NETS[net].sym + ' for the amount plus the fee (about ' + ethers.formatEther(fee) + ').');
     temp.tx = { to, v, tk, amt, sym }; temp.busy = false;
-    show(`<h1>Confirm send</h1><div class="card"><label>To</label><div class="addr">${to}</div>
-    <label>Amount</label><div class="bal">${esc(amt)} ${esc(sym)}</div>
-    ${tk ? `<label>Token contract</label><div class="addr">${esc(tk.a)}</div>` : ''}
-    <label>Maximum network fee (paid in ${NETS[net].sym})</label><div class="addr">${ethers.formatEther(fee)} ${NETS[net].sym}</div>
-    <label>Network</label><div>${NETS[net].name}</div>
-    <button id="cf" onclick="sendNow()">Confirm and send</button><button class="alt" onclick="mainView()">Cancel</button><div id="m"></div></div>`);
+    sub('Confirm', `<div class="cfm"><div class="ca">${esc(amt)} <small>${esc(sym)}</small></div></div>
+    <div class="kv"><span>To</span><b class="addr">${to}</b></div>
+    <div class="kv"><span>From</span><b class="addr">${esc(short(wallet.address))}</b></div>
+    <div class="kv"><span>Network</span><b>${NETS[net].name}</b></div>
+    ${tk ? `<div class="kv"><span>Token</span><b class="addr">${esc(short(tk.a))}</b></div>` : ''}
+    <div class="kv"><span>Max network fee</span><b>${esc(fmt(ethers.formatEther(fee)))} ${NETS[net].sym}</b></div>
+    <button id="cf" onclick="sendNow()">Confirm</button><button class="alt" onclick="sendView()">Back</button>`, 'sendView()');
   } catch (e) { msg('m', 'Failed: ' + (e.shortMessage || e.message)); }
   finally { p.destroy(); }
 }
@@ -371,28 +540,41 @@ async function waitTx(p, hash, ms) {
   }
   return null;
 }
+function stg(k, title, text, extra) {
+  const e = $('#stg'); if (!e) return;
+  e.dataset.k = k; $('#stt').textContent = title; $('#sts').textContent = text; $('#stx').innerHTML = extra || '';
+}
+function steps(n) { return '<div class="steps">' + ['Signed', 'Broadcast', 'Confirmed'].map((x, i) => `<div class="${i < n ? 'on' : i === n ? 'cur' : ''}"><i></i>${x}</div>`).join('') + '</div>'; }
 async function sendNow() {
   if (temp.busy) return;
   temp.busy = true;
-  const cf = $('#cf'); if (cf) cf.disabled = true;
-  msg('m', 'Sending...', 1);
-  const p = prov(), t = temp.tx, id = NETS[net].id, link = NETS[net].scan;
-  const out = (h, c) => { const m = $('#m'); if (m) { m.className = 'msg ' + c; m.innerHTML = h; } };
+  const p = prov(), t = temp.tx, id = NETS[net].id, link = NETS[net].scan, what = t.amt + ' ' + t.sym + ' to ' + short(t.to);
+  const done = tb => `<button onclick="${tb}">Done</button>`;
+  show(`<div class="stage" id="stg" data-k="send"><div class="sico"><div class="ring"></div><svg class="arr" viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg><svg class="ck" viewBox="0 0 52 52"><circle cx="26" cy="26" r="24"/><path d="M15 27l8 8 14-16"/></svg><svg class="xx" viewBox="0 0 52 52"><circle cx="26" cy="26" r="24"/><path d="M18 18l16 16M34 18L18 34"/></svg></div><div class="st" id="stt"></div><div class="ss" id="sts"></div><div id="stx"></div></div>`, null);
+  stg('send', 'Sending', what, steps(0));
+  let tx;
   try {
     const w = wallet.connect(p);
-    const tx = t.tk ? await new ethers.Contract(t.tk.a, ERC20, w).transfer(t.to, t.v) : await w.sendTransaction({ to: t.to, value: t.v });
-    addHist({ h: tx.hash, c: id, f: wallet.address, to: t.to, a: t.amt, s: t.sym, t: Date.now(), st: 'pending' });
-    const view = `<a href="${link}/tx/${tx.hash}" target="_blank" rel="noopener">View transaction</a>`;
-    out(`Sent. Waiting for confirmation... ${view}`, 'ok');
-    try {
-      const r = await waitTx(p, tx.hash, 180000);
-      if (!r) throw 0;
+    tx = t.tk ? await new ethers.Contract(t.tk.a, ERC20, w).transfer(t.to, t.v) : await w.sendTransaction({ to: t.to, value: t.v });
+  } catch (e) {
+    temp.busy = false;
+    stg('fail', 'Not sent', e.shortMessage || e.message, '<button onclick="sendView()">Back</button>');
+    p.destroy(); return;
+  }
+  addHist({ h: tx.hash, c: id, f: wallet.address, to: t.to, a: t.amt, s: t.sym, t: Date.now(), st: 'pending' });
+  const view = link ? `<a class="vl" style="font-size:14px" href="${link}/tx/${tx.hash}" target="_blank" rel="noopener">View on explorer</a>` : '';
+  const fin = "temp.form=null;tab='activity';mainView()";
+  stg('wait', 'Waiting for confirmation', what, steps(2) + view);
+  try {
+    const r = await waitTx(p, tx.hash, 180000);
+    if (!r) stg('pend', 'Still pending', 'It may confirm later. Check the Activity tab.', steps(2) + view + done(fin));
+    else {
       const ok = r.status === 1;
       setHist(tx.hash, ok ? 'ok' : 'fail'); renderHist();
-      out(`${ok ? 'Confirmed in block ' + r.blockNumber + '.' : 'The transaction failed on-chain.'} ${view}<br><button class="alt" onclick="mainView()">Back to wallet</button>`, ok ? 'ok' : 'err');
-    } catch { out(`Still pending. It may confirm later. ${view}<br><button class="alt" onclick="mainView()">Back to wallet</button>`, 'ok'); }
-  } catch (e) { temp.busy = false; const c = $('#cf'); if (c) c.disabled = false; msg('m', 'Failed: ' + (e.shortMessage || e.message)); }
-  finally { p.destroy(); }
+      stg(ok ? 'ok' : 'fail', ok ? 'Sent' : 'Transaction failed', what, (ok ? steps(3) : '') + view + done(fin));
+    }
+  } catch { stg('pend', 'Still pending', 'It may confirm later. Check the Activity tab.', steps(2) + view + done(fin)); }
+  p.destroy();
 }
 
 function secView() {
