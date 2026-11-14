@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'unsafe-inline'; connect-src https://ethereum-sepolia-rpc.publicnode.com https://ethereum-rpc.publicnode.com; img-src data:; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'unsafe-inline'; connect-src https://ethereum-sepolia-rpc.publicnode.com https://ethereum-rpc.publicnode.com https://eth-sepolia.blockscout.com https://eth.blockscout.com; img-src data:; base-uri 'none'; form-action 'none'">
 <title>My Wallet</title>
 <style>
 :root{--bg:#eef2f1;--card:#fff;--ink:#13211e;--mute:#5b6b67;--line:#cfdad7;--acc:#0f6b5c;--accink:#fff;--warn:#fff4e0;--warnink:#7a3d05;--bad:#b3261e;--ok:#0f6b5c}
@@ -40,6 +40,7 @@ a{color:var(--acc)}
 <body>
 <main id="app"></main>
 <script src="https://cdn.jsdelivr.net/npm/ethers@6.13.4/dist/ethers.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
 <script>
 const $ = s => document.querySelector(s);
 const NETS = {
@@ -193,10 +194,11 @@ const hist = () => { try { return JSON.parse(localStorage.getItem(HKEY)) || []; 
 const putHist = l => { try { localStorage.setItem(HKEY, JSON.stringify(l)); } catch {} };
 const addHist = h => putHist([h, ...hist()].slice(0, 50));
 function setHist(hash, st) { const l = hist(), x = l.find(i => i.h === hash); if (x) { x.st = st; putHist(l); } }
+const short = a => a.slice(0, 8) + '...' + a.slice(-6);
 function renderHist() {
   const b = $('#hs'); if (!b || !wallet) return;
-  const id = NETS[net].id, l = hist().filter(h => h.c === id && h.f === wallet.address).slice(0, 10);
-  b.innerHTML = l.length ? l.map(h => `<div class="tk"><div><b>${esc(h.a)} ${esc(h.s)}</b><div class="note addr" style="margin:0;font-size:12px">to ${esc(h.to.slice(0, 8))}...${esc(h.to.slice(-6))}</div><div class="note" style="margin:0;font-size:12px">${esc(new Date(h.t).toLocaleString())}</div></div><div class="tb">${h.st === 'ok' ? 'Confirmed' : h.st === 'fail' ? 'Failed' : 'Pending'}</div><a href="${NETS[net].scan}/tx/${esc(h.h)}" target="_blank" rel="noopener">View on Etherscan</a></div>`).join('') : '<p class="note">No transactions sent from this wallet yet.</p>';
+  const id = NETS[net].id, l = hist().filter(h => h.c === id && h.f === wallet.address).sort((x, y) => y.t - x.t).slice(0, 15);
+  b.innerHTML = l.length ? l.map(h => { const inn = h.d === 'in'; return `<div class="tk"><div><b>${inn ? '+' : '-'}${esc(h.a)} ${esc(h.s)}</b><div class="note addr" style="margin:0;font-size:12px">${inn ? 'from' : 'to'} ${esc(short(inn ? h.from : h.to))}</div><div class="note" style="margin:0;font-size:12px">${esc(new Date(h.t).toLocaleString())}</div></div><div class="tb">${inn ? 'Received' : h.st === 'ok' ? 'Confirmed' : h.st === 'fail' ? 'Failed' : 'Pending'}</div><a href="${NETS[net].scan}/tx/${esc(h.h)}" target="_blank" rel="noopener">View on Etherscan</a></div>`; }).join('') : '<p class="note">No transactions yet.</p>';
 }
 async function checkPending() {
   if (!wallet) return;
@@ -205,6 +207,61 @@ async function checkPending() {
   const p = prov();
   try { for (const h of l) { const r = await p.getTransactionReceipt(h.h); if (r) setHist(h.h, r.status === 1 ? 'ok' : 'fail'); } } catch {}
   p.destroy(); renderHist();
+}
+const EXPL = { 11155111: 'https://eth-sepolia.blockscout.com', 1: 'https://eth.blockscout.com' };
+let syncing = false;
+async function syncTokens() {
+  const n = NETS[net], me = wallet.address, key = 'mywallet.scan.' + n.id + '.' + me, p = prov();
+  try {
+    const latest = await p.getBlockNumber(), saved = localStorage.getItem(key);
+    let from = saved ? Number(saved) + 1 : latest - 20000;
+    if (latest - from > 20000) from = latest - 20000;
+    if (from < 0) from = 0;
+    const topic = ethers.id('Transfer(address,address,uint256)'), me32 = ethers.zeroPadValue(me, 32), have = new Set(hist().map(h => h.k));
+    for (const t of tokens()) {
+      for (let s = from; s <= latest; s += 5000) {
+        const logs = await p.getLogs({ address: t.a, topics: [topic, null, me32], fromBlock: s, toBlock: Math.min(s + 4999, latest) });
+        for (const l of logs) {
+          const k = l.transactionHash + ':' + l.index, sender = ethers.getAddress('0x' + l.topics[1].slice(26));
+          if (have.has(k) || sender === me) continue;
+          const blk = await p.getBlock(l.blockNumber);
+          addHist({ h: l.transactionHash, k, c: n.id, f: me, to: me, from: sender, a: ethers.formatUnits(l.data, t.d), s: t.s, t: blk ? blk.timestamp * 1000 : Date.now(), st: 'ok', d: 'in' });
+        }
+      }
+    }
+    localStorage.setItem(key, String(latest));
+    return true;
+  } catch { return false; }
+  finally { p.destroy(); }
+}
+async function syncEth() {
+  const base = EXPL[NETS[net].id], me = wallet.address;
+  try {
+    const r = await fetch(base + '/api/v2/addresses/' + me + '/transactions?filter=to');
+    if (!r.ok) return false;
+    const j = await r.json(), have = new Set(hist().map(h => h.k));
+    for (const x of j.items || []) {
+      const from = x.from && x.from.hash, to = x.to && x.to.hash, k = x.hash + ':eth';
+      if (!from || !to || to.toLowerCase() !== me.toLowerCase() || from.toLowerCase() === me.toLowerCase() || !x.value || x.value === '0' || x.status !== 'ok' || have.has(k)) continue;
+      addHist({ h: x.hash, k, c: NETS[net].id, f: me, to: me, from: ethers.getAddress(from), a: ethers.formatEther(x.value), s: NETS[net].sym, t: Date.parse(x.timestamp) || Date.now(), st: 'ok', d: 'in' });
+    }
+    return true;
+  } catch { return false; }
+}
+async function syncHistory() {
+  if (!wallet || syncing) return;
+  syncing = true;
+  const t = await syncTokens(), e = await syncEth();
+  syncing = false;
+  renderHist();
+  const n = $('#hn'); if (n) n.textContent = (t && e) ? '' : 'Some incoming transfers could not be checked right now (' + [!t && 'tokens', !e && 'ETH'].filter(Boolean).join(', ') + '). Pull to refresh later.';
+}
+function showQR() {
+  const b = $('#qr'); if (!b) return;
+  if (b.innerHTML) { b.innerHTML = ''; return; }
+  if (!window.qrcode) { b.innerHTML = '<p class="note">The QR library could not load.</p>'; return; }
+  const q = qrcode(0, 'M'); q.addData(wallet.address); q.make();
+  b.innerHTML = '<div style="background:#fff;padding:12px;border-radius:12px;display:inline-block;line-height:0;margin-top:12px">' + q.createSvgTag(7, 0) + '</div><p class="note">Scan to receive. The same address works on all Ethereum-style networks, so make sure the sender picks the right one.</p>';
 }
 document.addEventListener('visibilitychange', () => { if (!document.hidden && wallet) checkPending(); });
 const prov = () => { const n = NETS[net]; return new ethers.JsonRpcProvider(n.rpc, n.id, { staticNetwork: ethers.Network.from(n.id) }); };
@@ -215,7 +272,7 @@ function mainView() {
   <select id="net" onchange="net=this.value;mainView()">${Object.entries(NETS).map(([k, n]) => `<option value="${k}" ${k === net ? 'selected' : ''}>${n.name}</option>`).join('')}</select>
   ${net === 'mainnet' ? '<div class="card warn">Mainnet uses real money. Check every address twice.</div>' : ''}
   <div class="card"><label>Your address (share it to receive)</label><div class="addr">${wallet.address}</div>
-  <button class="sm" onclick="copyText('${wallet.address}', this)">Copy address</button>
+  <button class="sm" onclick="copyText('${wallet.address}', this)">Copy address</button> <button class="sm alt" onclick="showQR()">QR code</button><div id="qr" style="text-align:center"></div>
   <label>Balance</label><div class="bal" id="bal">...</div>
   <button class="sm alt" onclick="refresh()">Refresh</button></div>
   <div class="card"><h2>Tokens</h2><div id="tk"></div>
@@ -227,7 +284,7 @@ function mainView() {
   <label>To address</label><input id="to" autocomplete="off" spellcheck="false" placeholder="0x...">
   <label>Amount</label><input id="amt" inputmode="decimal" placeholder="0.001">
   <button onclick="sendPrep()">Review</button><div id="m"></div></div>
-  <div class="card"><h2>Recent activity</h2><div id="hs"></div><p class="note">Shows transactions sent from this app on this device.</p></div>
+  <div class="card"><h2>Recent activity</h2><div id="hs"></div><p class="note" id="hn"></p><p class="note">Shows what you sent from this app and what you received (tokens via the network, ETH via the Blockscout explorer).</p></div>
   <div class="card"><h2>Security</h2>
   <button class="alt" onclick="secView()">Show recovery phrase and private key</button>
   <button class="alt" onclick="backupView()">Export encrypted backup</button>
@@ -239,7 +296,7 @@ async function refresh() {
   try { $('#bal').textContent = ethers.formatEther(await p.getBalance(wallet.address)) + ' ' + NETS[net].sym; }
   catch { const b = $('#bal'); if (b) b.textContent = 'Could not load. Check your connection and refresh.'; }
   p.destroy();
-  refreshTokens();
+  refreshTokens(); syncHistory();
 }
 
 async function refreshTokens() {
