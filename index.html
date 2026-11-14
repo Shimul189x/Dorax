@@ -33,7 +33,7 @@ button.sm{width:auto;padding:8px 14px;font-size:14px;margin-top:8px}
 .words i{color:var(--mute);font-style:normal;margin-right:8px;font-size:13px}
 .msg{margin-top:10px;font-size:14px;word-break:break-word}.err{color:var(--bad)}.ok{color:var(--ok)}
 a{color:var(--acc)}
-.tk{display:grid;grid-template-columns:1fr auto;gap:6px 10px;align-items:center;padding:10px 0;border-bottom:1px solid var(--line)}.tk .tb{font-family:ui-monospace,Menlo,Consolas,monospace;font-weight:700;text-align:right}.tk .sm{grid-column:1/-1;justify-self:start;margin-top:0}
+.tk{display:grid;grid-template-columns:1fr auto;gap:6px 10px;align-items:center;padding:10px 0;border-bottom:1px solid var(--line)}.tk .tb{font-family:ui-monospace,Menlo,Consolas,monospace;font-weight:700;text-align:right}.tk a{grid-column:1/-1;font-size:14px}.tk .sm{grid-column:1/-1;justify-self:start;margin-top:0}
 </style>
 </head>
 <body>
@@ -187,6 +187,24 @@ const DEFAULTS = { 11155111: [{ a: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238',
 function allTokens() { try { return JSON.parse(localStorage.getItem(TKEY)) || {}; } catch { return {}; } }
 function tokens() { const id = NETS[net].id; return allTokens()[id] || DEFAULTS[id] || []; }
 function saveTokens(l) { const a = allTokens(); a[NETS[net].id] = l; try { localStorage.setItem(TKEY, JSON.stringify(a)); } catch {} }
+const HKEY = 'mywallet.history.v1';
+const hist = () => { try { return JSON.parse(localStorage.getItem(HKEY)) || []; } catch { return []; } };
+const putHist = l => { try { localStorage.setItem(HKEY, JSON.stringify(l)); } catch {} };
+const addHist = h => putHist([h, ...hist()].slice(0, 50));
+function setHist(hash, st) { const l = hist(), x = l.find(i => i.h === hash); if (x) { x.st = st; putHist(l); } }
+function renderHist() {
+  const b = $('#hs'); if (!b || !wallet) return;
+  const id = NETS[net].id, l = hist().filter(h => h.c === id && h.f === wallet.address).slice(0, 10);
+  b.innerHTML = l.length ? l.map(h => `<div class="tk"><div><b>${esc(h.a)} ${esc(h.s)}</b><div class="note addr" style="margin:0;font-size:12px">to ${esc(h.to.slice(0, 8))}...${esc(h.to.slice(-6))}</div><div class="note" style="margin:0;font-size:12px">${esc(new Date(h.t).toLocaleString())}</div></div><div class="tb">${h.st === 'ok' ? 'Confirmed' : h.st === 'fail' ? 'Failed' : 'Pending'}</div><a href="${NETS[net].scan}/tx/${esc(h.h)}" target="_blank" rel="noopener">View on Etherscan</a></div>`).join('') : '<p class="note">No transactions sent from this wallet yet.</p>';
+}
+async function checkPending() {
+  if (!wallet) return;
+  const id = NETS[net].id, l = hist().filter(h => h.st === 'pending' && h.c === id && h.f === wallet.address);
+  if (!l.length) return;
+  const p = prov();
+  try { for (const h of l) { const r = await p.getTransactionReceipt(h.h); if (r) setHist(h.h, r.status === 1 ? 'ok' : 'fail'); } } catch {}
+  p.destroy(); renderHist();
+}
 const prov = () => { const n = NETS[net]; return new ethers.JsonRpcProvider(n.rpc, n.id, { staticNetwork: ethers.Network.from(n.id) }); };
 
 function mainView() {
@@ -207,11 +225,12 @@ function mainView() {
   <label>To address</label><input id="to" autocomplete="off" spellcheck="false" placeholder="0x...">
   <label>Amount</label><input id="amt" inputmode="decimal" placeholder="0.001">
   <button onclick="sendPrep()">Review</button><div id="m"></div></div>
+  <div class="card"><h2>Recent activity</h2><div id="hs"></div><p class="note">Shows transactions sent from this app on this device.</p></div>
   <div class="card"><h2>Security</h2>
   <button class="alt" onclick="secView()">Show recovery phrase and private key</button>
   <button class="alt" onclick="backupView()">Export encrypted backup</button>
   <button class="alt danger" onclick="wipeView()">Remove wallet from this device</button></div>`);
-  refresh();
+  refresh(); renderHist(); checkPending();
 }
 async function refresh() {
   const p = prov();
@@ -275,7 +294,7 @@ async function sendPrep() {
     } else gas = await p.estimateGas({ from: wallet.address, to, value: v });
     const fee = (f.maxFeePerGas ?? f.gasPrice) * gas;
     if (ethBal < fee + (tk ? 0n : v)) return msg('m', 'Not enough ' + NETS[net].sym + ' for the amount plus the fee (about ' + ethers.formatEther(fee) + ').');
-    temp.tx = { to, v, tk };
+    temp.tx = { to, v, tk, amt, sym };
     show(`<h1>Confirm send</h1><div class="card"><label>To</label><div class="addr">${to}</div>
     <label>Amount</label><div class="bal">${esc(amt)} ${esc(sym)}</div>
     ${tk ? `<label>Token contract</label><div class="addr">${esc(tk.a)}</div>` : ''}
@@ -287,12 +306,19 @@ async function sendPrep() {
 }
 async function sendNow() {
   msg('m', 'Sending...', 1);
-  const p = prov(), t = temp.tx;
+  const p = prov(), t = temp.tx, id = NETS[net].id, link = NETS[net].scan;
+  const out = (h, c) => { const m = $('#m'); if (m) { m.className = 'msg ' + c; m.innerHTML = h; } };
   try {
     const w = wallet.connect(p);
     const tx = t.tk ? await new ethers.Contract(t.tk.a, ERC20, w).transfer(t.to, t.v) : await w.sendTransaction({ to: t.to, value: t.v });
-    $('#m').className = 'msg ok';
-    $('#m').innerHTML = `Sent. <a href="${NETS[net].scan}/tx/${tx.hash}" target="_blank" rel="noopener">View transaction</a><br><button class="alt" onclick="mainView()">Done</button>`;
+    addHist({ h: tx.hash, c: id, f: wallet.address, to: t.to, a: t.amt, s: t.sym, t: Date.now(), st: 'pending' });
+    const view = `<a href="${link}/tx/${tx.hash}" target="_blank" rel="noopener">View transaction</a>`;
+    out(`Sent. Waiting for confirmation... ${view}`, 'ok');
+    try {
+      const r = await p.waitForTransaction(tx.hash, 1, 180000), ok = r && r.status === 1;
+      setHist(tx.hash, ok ? 'ok' : 'fail');
+      out(`${ok ? 'Confirmed in block ' + r.blockNumber + '.' : 'The transaction failed on-chain.'} ${view}<br><button class="alt" onclick="mainView()">Back to wallet</button>`, ok ? 'ok' : 'err');
+    } catch { out(`Still pending. It may confirm later. ${view}<br><button class="alt" onclick="mainView()">Back to wallet</button>`, 'ok'); }
   } catch (e) { msg('m', 'Failed: ' + (e.shortMessage || e.message)); }
   finally { p.destroy(); }
 }
