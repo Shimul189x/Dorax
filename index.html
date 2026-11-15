@@ -125,10 +125,18 @@ a{color:var(--link);font-weight:600;text-decoration:none}
 @keyframes draw{to{stroke-dashoffset:0}}
 @keyframes pulse{50%{opacity:.35}}
 @media(prefers-reduced-motion:reduce){*{animation-duration:.01s!important;animation-iteration-count:1!important;transition:none!important}}
+.row.clk{cursor:pointer;transition:opacity .15s}.row.clk:active{opacity:.6}
+.ti.big{width:64px;height:64px;font-size:24px;margin:0 auto 10px}
+.ac2{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:16px 0 20px}
+.ab2{display:flex;flex-direction:column;align-items:center;gap:4px;margin:0;padding:12px 6px;background:var(--card);color:var(--acc);border-radius:16px;font-size:13px;box-shadow:var(--sh)}
+.ab2 svg{width:20px;height:20px}
+.toast{position:fixed;left:50%;bottom:24px;transform:translate(-50%,20px);max-width:90%;background:var(--ink);color:var(--bg);padding:12px 18px;border-radius:14px;font-size:14px;font-weight:600;box-shadow:0 14px 30px -12px rgba(0,0,0,.5);opacity:0;pointer-events:none;transition:opacity .25s,transform .25s;z-index:20;text-align:center}
+.toast.on{opacity:1;transform:translate(-50%,0)}
 </style>
 </head>
 <body>
 <main id="app"></main>
+<div class="toast" id="toast" role="status"></div>
 <script src="https://cdn.jsdelivr.net/npm/ethers@6.13.4/dist/ethers.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
 <script>
@@ -250,7 +258,7 @@ async function verifyDone() {
 async function finish(secret, address, pw) {
   const rec = await seal(secret, address, pw);
   if (!save(rec)) return alert('This browser blocked storage (private mode?). The wallet was not saved.');
-  wallet = mk(secret); temp = {};
+  wallet = mk(secret); temp = {}; for (const k in bals) delete bals[k];
   mainView();
 }
 
@@ -289,7 +297,7 @@ async function unlock() {
   try { wallet = mk(await openSeal(load(), $('#pw').value)); mainView(); }
   catch { msg('m', 'Wrong password.'); }
 }
-function lock() { wallet = null; clearTimeout(timer); unlockView(); }
+function lock() { wallet = null; clearTimeout(timer); for (const k in bals) delete bals[k]; unlockView(); }
 function arm() { clearTimeout(timer); timer = setTimeout(lock, 300000); }
 ['click', 'touchstart', 'keydown'].forEach(e => document.addEventListener(e, () => { if (wallet) arm(); }, { passive: true }));
 
@@ -306,10 +314,14 @@ const addHist = h => putHist([h, ...hist()].slice(0, 50));
 function setHist(hash, st) { const l = hist(), x = l.find(i => i.h === hash); if (x) { x.st = st; putHist(l); } }
 const fmt = v => { const [i, d = ''] = String(v).split('.'), t = d.slice(0, 6).replace(/0+$/, ''); return t ? i + '.' + t : (i === '0' && /[1-9]/.test(d) ? '<0.000001' : i); };
 const short = a => a.slice(0, 8) + '...' + a.slice(-6);
+function histRow(h) {
+  const inn = h.d === 'in', st = inn ? 'Received' : h.st === 'ok' ? 'Confirmed' : h.st === 'fail' ? 'Failed' : 'Pending';
+  return `<div class="row"><div class="ti ${inn ? 'in' : 'out'}">${inn ? IC.down : IC.up}</div><div class="rm"><b>${inn ? 'Received' : 'Sent'}</b><span>${inn ? 'From' : 'To'} ${esc(short(inn ? h.from : h.to))}</span><span>${esc(new Date(h.t).toLocaleString())} &middot; ${st}</span>${NETS[net].scan ? `<a class="vl" href="${NETS[net].scan}/tx/${esc(h.h)}" target="_blank" rel="noopener">View on explorer</a>` : ''}</div><div class="rb ${inn ? 'pos' : ''}">${inn ? '+' : '-'}${esc(fmt(h.a))} ${esc(h.s)}</div></div>`;
+}
 function renderHist() {
   const b = $('#hs'); if (!b || !wallet) return;
   const id = NETS[net].id, l = hist().filter(h => h.c === id && h.f === wallet.address).sort((x, y) => y.t - x.t).slice(0, 20);
-  b.innerHTML = l.length ? l.map(h => { const inn = h.d === 'in', st = inn ? 'Received' : h.st === 'ok' ? 'Confirmed' : h.st === 'fail' ? 'Failed' : 'Pending'; return `<div class="row"><div class="ti ${inn ? 'in' : 'out'}">${inn ? IC.down : IC.up}</div><div class="rm"><b>${inn ? 'Received' : 'Sent'}</b><span>${inn ? 'From' : 'To'} ${esc(short(inn ? h.from : h.to))}</span><span>${esc(new Date(h.t).toLocaleString())} &middot; ${st}</span>${NETS[net].scan ? `<a class="vl" href="${NETS[net].scan}/tx/${esc(h.h)}" target="_blank" rel="noopener">View on explorer</a>` : ''}</div><div class="rb ${inn ? 'pos' : ''}">${inn ? '+' : '-'}${esc(fmt(h.a))} ${esc(h.s)}</div></div>`; }).join('') : '<p class="note" style="padding:16px 0 2px">No transactions yet.</p>';
+  b.innerHTML = l.length ? l.map(histRow).join('') : '<p class="note" style="padding:16px 0 2px">No transactions yet.</p>';
 }
 async function checkPending() {
   if (!wallet) return;
@@ -336,7 +348,7 @@ async function syncTokens() {
           const k = l.transactionHash + ':' + l.index, sender = ethers.getAddress('0x' + l.topics[1].slice(26));
           if (have.has(k) || sender === me) continue;
           const blk = await p.getBlock(l.blockNumber);
-          addHist({ h: l.transactionHash, k, c: n.id, f: me, to: me, from: sender, a: ethers.formatUnits(l.data, t.d), s: t.s, t: blk ? blk.timestamp * 1000 : Date.now(), st: 'ok', d: 'in' });
+          addIn({ h: l.transactionHash, k, c: n.id, f: me, to: me, from: sender, a: ethers.formatUnits(l.data, t.d), s: t.s, t: blk ? blk.timestamp * 1000 : Date.now(), st: 'ok', d: 'in' });
         }
       }
     }
@@ -355,7 +367,7 @@ async function syncEth() {
     for (const x of j.items || []) {
       const from = x.from && x.from.hash, to = x.to && x.to.hash, k = x.hash + ':eth';
       if (!from || !to || to.toLowerCase() !== me.toLowerCase() || from.toLowerCase() === me.toLowerCase() || !x.value || x.value === '0' || x.status !== 'ok' || have.has(k)) continue;
-      addHist({ h: x.hash, k, c: NETS[net].id, f: me, to: me, from: ethers.getAddress(from), a: ethers.formatEther(x.value), s: NETS[net].sym, t: Date.parse(x.timestamp) || Date.now(), st: 'ok', d: 'in' });
+      addIn({ h: x.hash, k, c: NETS[net].id, f: me, to: me, from: ethers.getAddress(from), a: ethers.formatEther(x.value), s: NETS[net].sym, t: Date.parse(x.timestamp) || Date.now(), st: 'ok', d: 'in' });
     }
     return true;
   } catch { return false; }
@@ -374,7 +386,13 @@ function drawQR() {
   const q = qrcode(0, 'M'); q.addData(wallet.address); q.make();
   b.innerHTML = q.createSvgTag(6, 0);
 }
-document.addEventListener('visibilitychange', () => { if (!document.hidden && wallet) checkPending(); });
+document.addEventListener('visibilitychange', () => { if (!document.hidden && wallet) { refresh(); checkPending(); } });
+let tickN = 0;
+setInterval(() => {
+  if (!wallet || document.hidden || (!$('#bal') && !$('#db'))) return;
+  refresh();
+  if (++tickN % 3 === 0) { syncHistory(); checkPending(); }
+}, 10000);
 const prov = () => { const n = NETS[net]; return new ethers.JsonRpcProvider(n.rpc, n.id, { staticNetwork: ethers.Network.from(n.id) }); };
 
 const IC = {
@@ -383,6 +401,7 @@ const IC = {
   copy: '<svg viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 012-2h9"/></svg>',
   lock: '<svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 018 0v3"/></svg>',
   back: '<svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>',
+  plus: '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>',
   chev: '<svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg>',
   eth: '<svg viewBox="0 0 24 24" style="fill:#fff;stroke:none"><path d="M12 2l6 10-6 3.5L6 12zM12 16.7l6-3.5L12 22 6 13.2z"/></svg>'
 };
@@ -399,14 +418,14 @@ function mainView() {
   const n = NETS[net], hue = parseInt(wallet.address.slice(2, 8), 16) % 360;
   show(`<div class="hdr"><div class="brand">${LOGO}<span>Dorax</span></div><button class="pill" onclick="networksView()"><i style="background:${n.c || '#6b7a99'}"></i><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(n.name)}</span>${IC.chev}</button></div>
   ${n.test ? '' : `<div class="card warn" style="margin:0 0 12px">${esc(n.name)} is a real-money network. Check every address twice.</div>`}
-  <section class="bc"><div class="bt1"><div class="acc"><div class="avt" style="background:linear-gradient(135deg,hsl(${hue} 80% 65%),hsl(${(hue + 60) % 360} 80% 50%))"></div><div><div class="an">Account 1</div><button class="ad" onclick="copyText('${wallet.address}', this)">${short(wallet.address)}</button></div></div><button class="ib" onclick="lock()" aria-label="Lock">${IC.lock}</button></div>
+  <section class="bc"><div class="bt1"><div class="acc"><div class="avt" style="background:linear-gradient(135deg,hsl(${hue} 80% 65%),hsl(${(hue + 60) % 360} 80% 50%))"></div><div><div class="an">Account 1</div><button class="ad" onclick="copyText('${wallet.address}', this)">${short(wallet.address)}</button></div></div><button class="ib" onclick="addView()" aria-label="Add token">${IC.plus}</button></div>
   <div class="bl"><span>Balance</span><div class="bv" id="bal">...</div></div>
   <div class="ac"><button class="ab" onclick="sendView()">${IC.up}<span>Send</span></button><button class="ab" onclick="receiveView()">${IC.down}<span>Receive</span></button><button class="ab" onclick="copyText('${wallet.address}', this.querySelector('span'))">${IC.copy}<span>Copy</span></button></div></section>
   <div class="tabs"><button id="t-assets" onclick="setTab('assets')">Assets</button><button id="t-activity" onclick="setTab('activity')">Activity</button><button id="t-settings" onclick="setTab('settings')">Settings</button></div>
-  <div id="p-assets"><div class="list"><div class="row"><div class="ti" style="background:${n.c || '#6b7a99'}">${esc(n.sym.slice(0, 1))}</div><div class="rm"><b>${esc(n.sym)}</b><span>${esc(n.name)}</span></div><div class="rb" id="nb">...</div></div><div id="tk"></div></div><button class="lnk" onclick="addView()">+ Add token</button></div>
+  <div id="p-assets"><div class="list"><div class="row clk" onclick="assetView('')"><div class="ti" style="background:${n.c || '#6b7a99'}">${esc(n.sym.slice(0, 1))}</div><div class="rm"><b>${esc(n.sym)}</b><span>${esc(n.name)}</span></div><div class="rb" id="nb">...</div></div><div id="tk">${tokens().map(tokRow).join('')}</div></div><button class="lnk" onclick="addView()">+ Add token</button></div>
   <div id="p-activity"><div class="list" id="hs"></div><p class="note" id="hn" style="margin-top:12px"></p><p class="note">Shows what you sent from this app and what you received.</p></div>
-  <div id="p-settings"><button class="srow" style="margin-top:0" onclick="networksView()">Networks <span>&rsaquo;</span></button><button class="srow" onclick="secView()">Recovery phrase and private key <span>&rsaquo;</span></button><button class="srow" onclick="backupView()">Export encrypted backup <span>&rsaquo;</span></button><button class="srow" onclick="lock()">Lock wallet <span>&rsaquo;</span></button><button class="srow dng" onclick="wipeView()">Remove wallet from this device</button><p class="note" style="margin-top:16px">Dorax Wallet. Non-custodial: your keys never leave this device.</p></div>`, null);
-  setTab(tab); refresh(); renderHist(); checkPending();
+  <div id="p-settings"><button class="srow" style="margin-top:0" onclick="networksView()">Networks <span>&rsaquo;</span></button><button class="srow" onclick="manageView()">Manage tokens <span>&rsaquo;</span></button><button class="srow" onclick="secView()">Recovery phrase and private key <span>&rsaquo;</span></button><button class="srow" onclick="backupView()">Export encrypted backup <span>&rsaquo;</span></button><button class="srow" onclick="lock()">Lock wallet <span>&rsaquo;</span></button><button class="srow dng" onclick="wipeView()">Remove wallet from this device</button><p class="note" style="margin-top:16px">Dorax Wallet. Non-custodial: your keys never leave this device.</p></div>`, null);
+  setTab(tab); paint(); refresh(); syncHistory(); renderHist(); checkPending();
 }
 function pickNet(k) { if (!NETS[k]) return; setNet(k); tab = 'assets'; if (wallet) mainView(); else home(); }
 function networksView() {
@@ -456,26 +475,34 @@ function sendView() {
 async function pasteTo() {
   try { $('#to').value = (await navigator.clipboard.readText()).trim(); } catch { msg('m', 'Paste is not allowed here. Press and hold in the field to paste.'); }
 }
+const bals = {};
+let refreshing = false;
+function tokRow(t, i) { return `<div class="row clk" onclick="assetView('${t.a}')"><div class="ti" style="background:hsl(${((t.s.charCodeAt(0) || 65) * 47) % 360} 55% 48%)">${esc(t.s.slice(0, 1))}</div><div class="rm"><b>${esc(t.s)}</b><span>${esc(short(t.a))}</span></div><div class="rb" id="tb${i}">...</div></div>`; }
 async function refresh() {
-  const p = prov();
-  try { const v = fmt(ethers.formatEther(await p.getBalance(wallet.address))); $('#bal').innerHTML = esc(v) + ' <small>' + NETS[net].sym + '</small>'; const nb = $('#nb'); if (nb) nb.textContent = v; }
-  catch { const b = $('#bal'); if (b) b.textContent = 'Could not load. Check your connection and refresh.'; }
-  p.destroy();
-  refreshTokens(); syncHistory();
-}
-
-async function refreshTokens() {
-  const box = $('#tk'); if (!box) return;
-  const list = tokens();
-  if (!list.length) { box.innerHTML = '<p class="note">No tokens added on this network.</p>'; return; }
-  box.innerHTML = list.map((t, i) => `<div class="row"><div class="ti" style="background:hsl(${(t.s.charCodeAt(0) * 47) % 360} 55% 48%)">${esc(t.s.slice(0, 1))}</div><div class="rm"><b>${esc(t.s)}</b><span>${esc(short(t.a))}</span><button class="tl" onclick="rmToken(${i})">Remove</button></div><div class="rb" id="tb${i}">...</div></div>`).join('');
-  const p = prov();
-  await Promise.all(list.map(async (t, i) => {
-    try { const b = await new ethers.Contract(t.a, ERC20, p).balanceOf(wallet.address); const e = $('#tb' + i); if (e) e.textContent = fmt(ethers.formatUnits(b, t.d)); }
-    catch { const e = $('#tb' + i); if (e) e.textContent = '?'; }
+  if (!wallet || refreshing) return;
+  refreshing = true;
+  const nk = net, me = wallet.address, list = tokens(), p = prov(), res = {};
+  try { res[nk + ':'] = fmt(ethers.formatEther(await p.getBalance(me))); } catch { res[nk + ':'] = null; }
+  await Promise.all(list.map(async t => {
+    try { res[nk + ':' + t.a] = fmt(ethers.formatUnits(await new ethers.Contract(t.a, ERC20, p).balanceOf(me), t.d)); } catch { res[nk + ':' + t.a] = null; }
   }));
-  p.destroy();
+  p.destroy(); refreshing = false;
+  if (!wallet || wallet.address !== me) return;
+  for (const k in res) if (res[k] !== null || bals[k] === undefined) bals[k] = res[k] === null && bals[k] !== undefined ? bals[k] : res[k];
+  paint();
+  if (net !== nk) refresh();
 }
+function paint() {
+  if (!wallet) return;
+  const n = NETS[net], val = x => x === undefined ? '...' : x === null ? 'Offline' : x, v = bals[net + ':'];
+  const bal = $('#bal'); if (bal) bal.innerHTML = v === undefined ? '...' : v === null ? '<small>Could not load</small>' : esc(v) + ' <small>' + esc(n.sym) + '</small>';
+  const nb = $('#nb'); if (nb) nb.textContent = val(v);
+  tokens().forEach((t, i) => { const e = $('#tb' + i); if (e) e.textContent = val(bals[net + ':' + t.a]); });
+  const d = $('#db'); if (d) d.textContent = val(bals[net + ':' + (temp.asset || '')]);
+}
+let toastT;
+function toast(t) { const e = $('#toast'); if (!e) return; e.textContent = t; e.classList.add('on'); clearTimeout(toastT); toastT = setTimeout(() => e.classList.remove('on'), 4500); }
+function addIn(h) { addHist(h); if (Date.now() - h.t < 600000) { toast('Received ' + fmt(h.a) + ' ' + h.s); refresh(); } }
 async function lookupToken() {
   const raw = $('#ta').value.trim();
   if (!ethers.isAddress(raw)) return msg('tm', 'That is not a valid contract address.');
@@ -497,9 +524,28 @@ async function lookupToken() {
   finally { p.destroy(); }
 }
 function addToken() { if (!temp.tkn) return; saveTokens([...tokens(), temp.tkn]); temp.tkn = null; tab = 'assets'; mainView(); }
+function manageView() {
+  tab = 'settings';
+  const l = tokens();
+  sub('Manage tokens', `<p class="note">Tokens on <b>${esc(NETS[net].name)}</b>. Removing a token only hides it here. Your tokens stay in your wallet.</p>${l.length ? `<div class="list">${l.map((t, i) => `<div class="row"><div class="ti" style="background:hsl(${((t.s.charCodeAt(0) || 65) * 47) % 360} 55% 48%)">${esc(t.s.slice(0, 1))}</div><div class="rm"><b>${esc(t.s)}</b><span>${esc(short(t.a))}</span></div><button class="sm alt danger" style="margin:0" onclick="rmToken(${i})">Remove</button></div>`).join('')}</div>` : '<p class="note">No tokens added on this network.</p>'}<button class="alt" onclick="addView()">+ Add token</button>`);
+}
 function rmToken(i) {
   if (!confirm('Remove this token from the list? Your tokens are not deleted.')) return;
-  const l = tokens(); l.splice(i, 1); saveTokens(l); mainView();
+  const l = tokens(); l.splice(i, 1); saveTokens(l); manageView();
+}
+function sendFor(a) { temp.form = { as: a, to: '', amt: '' }; sendView(); }
+function assetView(a) {
+  temp.asset = a;
+  const n = NETS[net], tk = a ? tokens().find(t => t.a === a) : null;
+  if (a && !tk) return mainView();
+  const sym = tk ? tk.s : n.sym, bg = tk ? `hsl(${((sym.charCodeAt(0) || 65) * 47) % 360} 55% 48%)` : (n.c || '#6b7a99');
+  const l = hist().filter(h => h.c === n.id && h.f === wallet.address && h.s === sym).sort((x, y) => y.t - x.t).slice(0, 15);
+  sub(esc(sym), `<div class="cfm"><div class="ti big" style="background:${bg}">${esc(sym.slice(0, 1))}</div><div class="ca"><span id="db">...</span> <small>${esc(sym)}</small></div><p class="note">${tk ? 'Token' : 'Native coin'} on ${esc(n.name)}</p></div>
+  <div class="ac2"><button class="ab2" onclick="sendFor('${a}')">${IC.up}<span>Send</span></button><button class="ab2" onclick="receiveView()">${IC.down}<span>Receive</span></button></div>
+  <h2>Details</h2><div class="list"><div class="kv"><span>Network</span><b>${esc(n.name)}</b></div><div class="kv"><span>Chain ID</span><b>${n.id}</b></div><div class="kv" ${tk ? '' : 'style="border:0"'}><span>Type</span><b>${tk ? 'ERC-20 token' : 'Native coin'}</b></div>${tk ? `<div class="kv"><span>Decimals</span><b>${tk.d}</b></div><div class="kv" style="border:0"><span>Contract (tap to copy)</span><b class="addr" style="cursor:pointer" onclick="copyText('${tk.a}', this)">${esc(short(tk.a))}</b></div>` : ''}</div>
+  ${n.scan ? `<a class="lnk" style="display:block;text-align:center;padding:14px;border-radius:14px;margin-top:12px" href="${n.scan}/${tk ? 'token/' + tk.a : 'address/' + wallet.address}" target="_blank" rel="noopener">View on explorer</a>` : ''}
+  <h2 style="margin-top:18px">Activity</h2><div class="list">${l.length ? l.map(histRow).join('') : '<p class="note" style="padding:16px 0 2px">No transactions with this asset yet.</p>'}</div>`, 'mainView()');
+  paint();
 }
 
 async function sendPrep() {
@@ -540,41 +586,46 @@ async function waitTx(p, hash, ms) {
   }
   return null;
 }
-function stg(k, title, text, extra) {
-  const e = $('#stg'); if (!e) return;
+let stageSeq = 0;
+function stg(sid, k, title, text, extra) {
+  const e = $('#stg'); if (!e || e.dataset.sid !== String(sid)) return;
   e.dataset.k = k; $('#stt').textContent = title; $('#sts').textContent = text; $('#stx').innerHTML = extra || '';
+  const run = k === 'send' || k === 'wait';
+  $('#stb').textContent = run ? 'Back to wallet' : 'Done';
+  $('#stn').style.display = run ? '' : 'none';
 }
 function steps(n) { return '<div class="steps">' + ['Signed', 'Broadcast', 'Confirmed'].map((x, i) => `<div class="${i < n ? 'on' : i === n ? 'cur' : ''}"><i></i>${x}</div>`).join('') + '</div>'; }
+function fin() { temp.form = null; tab = 'activity'; if (wallet) mainView(); else home(); }
 async function sendNow() {
   if (temp.busy) return;
   temp.busy = true;
-  const p = prov(), t = temp.tx, id = NETS[net].id, link = NETS[net].scan, what = t.amt + ' ' + t.sym + ' to ' + short(t.to);
-  const done = tb => `<button onclick="${tb}">Done</button>`;
-  show(`<div class="stage" id="stg" data-k="send"><div class="sico"><div class="ring"></div><svg class="arr" viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg><svg class="ck" viewBox="0 0 52 52"><circle cx="26" cy="26" r="24"/><path d="M15 27l8 8 14-16"/></svg><svg class="xx" viewBox="0 0 52 52"><circle cx="26" cy="26" r="24"/><path d="M18 18l16 16M34 18L18 34"/></svg></div><div class="st" id="stt"></div><div class="ss" id="sts"></div><div id="stx"></div></div>`, null);
-  stg('send', 'Sending', what, steps(0));
+  const sid = ++stageSeq, p = prov(), t = temp.tx, me = wallet.address, id = NETS[net].id, link = NETS[net].scan, what = t.amt + ' ' + t.sym + ' to ' + short(t.to);
+  const view = h => link ? `<a class="vl" style="font-size:14px" href="${link}/tx/${h}" target="_blank" rel="noopener">View on explorer</a>` : '';
+  const away = () => { const e = $('#stg'); return !e || e.dataset.sid !== String(sid); };
+  show(`<div class="stage" id="stg" data-sid="${sid}" data-k="send"><div class="sico"><div class="ring"></div><svg class="arr" viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg><svg class="ck" viewBox="0 0 52 52"><circle cx="26" cy="26" r="24"/><path d="M15 27l8 8 14-16"/></svg><svg class="xx" viewBox="0 0 52 52"><circle cx="26" cy="26" r="24"/><path d="M18 18l16 16M34 18L18 34"/></svg></div><div class="st" id="stt"></div><div class="ss" id="sts"></div><div id="stx"></div><p class="note" id="stn">You can leave this screen. The transaction keeps going in the background.</p><button class="alt" id="stb" onclick="fin()">Back to wallet</button></div>`, null);
+  stg(sid, 'send', 'Sending', what, steps(0));
   let tx;
   try {
     const w = wallet.connect(p);
     tx = t.tk ? await new ethers.Contract(t.tk.a, ERC20, w).transfer(t.to, t.v) : await w.sendTransaction({ to: t.to, value: t.v });
   } catch (e) {
     temp.busy = false;
-    stg('fail', 'Not sent', e.shortMessage || e.message, '<button onclick="sendView()">Back</button>');
+    stg(sid, 'fail', 'Not sent', e.shortMessage || e.message, '<button onclick="sendView()">Try again</button>');
+    if (away()) toast('Not sent: ' + (e.shortMessage || e.message));
     p.destroy(); return;
   }
-  addHist({ h: tx.hash, c: id, f: wallet.address, to: t.to, a: t.amt, s: t.sym, t: Date.now(), st: 'pending' });
-  const view = link ? `<a class="vl" style="font-size:14px" href="${link}/tx/${tx.hash}" target="_blank" rel="noopener">View on explorer</a>` : '';
-  const fin = "temp.form=null;tab='activity';mainView()";
-  stg('wait', 'Waiting for confirmation', what, steps(2) + view);
-  try {
-    const r = await waitTx(p, tx.hash, 180000);
-    if (!r) stg('pend', 'Still pending', 'It may confirm later. Check the Activity tab.', steps(2) + view + done(fin));
-    else {
-      const ok = r.status === 1;
-      setHist(tx.hash, ok ? 'ok' : 'fail'); renderHist();
-      stg(ok ? 'ok' : 'fail', ok ? 'Sent' : 'Transaction failed', what, (ok ? steps(3) : '') + view + done(fin));
-    }
-  } catch { stg('pend', 'Still pending', 'It may confirm later. Check the Activity tab.', steps(2) + view + done(fin)); }
+  addHist({ h: tx.hash, c: id, f: me, to: t.to, a: t.amt, s: t.sym, t: Date.now(), st: 'pending' });
+  renderHist();
+  stg(sid, 'wait', 'Waiting for confirmation', what, steps(2) + view(tx.hash));
+  let r = null;
+  try { r = await waitTx(p, tx.hash, 180000); } catch {}
   p.destroy();
+  if (!r) { stg(sid, 'pend', 'Still pending', 'It may confirm later. Check the Activity tab.', steps(2) + view(tx.hash)); if (away()) toast('Still pending: ' + what); return; }
+  const ok = r.status === 1;
+  setHist(tx.hash, ok ? 'ok' : 'fail'); renderHist();
+  stg(sid, ok ? 'ok' : 'fail', ok ? 'Sent' : 'Transaction failed', what, (ok ? steps(3) : '') + view(tx.hash));
+  if (away()) toast(ok ? 'Sent ' + t.amt + ' ' + t.sym + ' \u2713' : 'Transaction failed: ' + what);
+  refresh();
 }
 
 function secView() {
