@@ -132,6 +132,8 @@ a{color:var(--link);font-weight:600;text-decoration:none}
 .ab2 svg{width:20px;height:20px}
 .toast{position:fixed;left:50%;bottom:24px;transform:translate(-50%,20px);max-width:90%;background:var(--ink);color:var(--bg);padding:12px 18px;border-radius:14px;font-size:14px;font-weight:600;box-shadow:0 14px 30px -12px rgba(0,0,0,.5);opacity:0;pointer-events:none;transition:opacity .25s,transform .25s;z-index:20;text-align:center}
 .toast.on{opacity:1;transform:translate(-50%,0)}
+.fv{display:block;font-size:12px;color:var(--mute);font-weight:500;min-height:1em}
+.bs2{font-size:15px;opacity:.92;margin-top:2px;word-break:break-word}
 </style>
 </head>
 <body>
@@ -158,6 +160,7 @@ const NKEY = 'mywallet.nets.v1';
 let NETS = {};
 function customNets() { try { return JSON.parse(localStorage.getItem(NKEY)) || []; } catch { return []; } }
 function buildNets() { NETS = { ...BUILTIN }; customNets().forEach(n => { NETS['c' + n.id] = n; }); }
+const TXKEY = 'mywallet.txpw.v1';
 const KEY = 'mywallet.v1';
 let wallet = null, net = 'sepolia', timer = null, temp = {};
 buildNets();
@@ -213,41 +216,40 @@ function home() {
   const s = load();
   if (s && s.ct) return unlockView();
   show(`<div class="welcome"><div class="bigmark">${LOGO}</div><h1>Dorax Wallet</h1><p class="sub">A self-custody wallet. Your keys stay on this device. No account, no server holding your funds.</p></div>
-  <div class="card"><button onclick="createView()">Create new wallet</button>
+  <div class="card"><button onclick="createStart()">Create new wallet</button>
   <button class="alt" onclick="importView()">Import recovery phrase or private key</button>
   <button class="alt" onclick="restoreView()">Restore from encrypted backup</button></div>
   <p class="note">Practice on Sepolia first. Do not keep real funds here until the app has had a security review.</p>`, null);
 }
 
+function createStart() { temp = {}; createView(); }
 function createView() {
-  show(`<h1>Create wallet</h1><div class="card">
-  <label>Password (at least 10 characters)</label><input id="p1" type="password" autocomplete="new-password">
-  <label>Repeat password</label><input id="p2" type="password" autocomplete="new-password">
-  <p class="note">The password only unlocks the wallet on this device. It cannot recover funds. Your recovery phrase can.</p>
-  <button onclick="createNext()">Continue</button><button class="alt" onclick="home()">Back</button><div id="m"></div></div>`);
+  sub('Create wallet', `<p class="sub">Step 1 of 3 &middot; Set a password</p><div class="card">
+  <label>Password (at least 10 characters)</label><input id="p1" type="password" autocomplete="new-password" value="${esc(temp.pw || '')}">
+  <label>Repeat password</label><input id="p2" type="password" autocomplete="new-password" value="${esc(temp.pw || '')}">
+  <p class="note" style="margin:12px 0 0">The password only unlocks the wallet on this device. It cannot recover funds. Your recovery phrase can.</p>
+  <button onclick="createNext()">Continue</button><div id="m"></div></div>`, 'home()');
 }
 function createNext() {
   const a = $('#p1').value, b = $('#p2').value;
   if (a.length < 10) return msg('m', 'Use at least 10 characters.');
   if (a !== b) return msg('m', 'The passwords do not match.');
-  const w = ethers.Wallet.createRandom();
-  temp = { pw: a, phrase: w.mnemonic.phrase, address: w.address };
+  if (!temp.phrase) { const w = ethers.Wallet.createRandom(); temp.phrase = w.mnemonic.phrase; temp.address = w.address; }
+  temp.pw = a;
   phraseView();
 }
 function phraseView() {
   const words = temp.phrase.split(' ');
-  show(`<h1>Recovery phrase</h1>
-  <div class="card warn">Write these 12 words on paper, in order. Anyone who has them controls your funds. If you lose them and forget the password, the funds are gone for good. No screenshots, no cloud notes.</div>
+  sub('Recovery phrase', `<p class="sub">Step 2 of 3 &middot; Write it down</p>
+  <div class="card warn" style="margin-top:0">Write these 12 words on paper, in order. Anyone who has them controls your funds. If you lose them and forget the password, the funds are gone for good. No screenshots, no cloud notes.</div>
   <div class="words">${words.map((w, i) => `<span><i>${i + 1}</i>${w}</span>`).join('')}</div>
-  <button onclick="verifyView()">I wrote it down</button>`);
+  <button onclick="verifyView()">I wrote it down</button>`, 'createView()');
 }
 function verifyView() {
-  const idx = [...Array(12).keys()].sort(() => Math.random() - .5).slice(0, 3).sort((a, b) => a - b);
-  temp.idx = idx;
-  show(`<h1>Check your copy</h1><div class="card">
-  ${idx.map(i => `<label>Word number ${i + 1}</label><input class="vw" autocapitalize="none" autocomplete="off" spellcheck="false">`).join('')}
-  <button onclick="verifyDone()">Check and create wallet</button>
-  <button class="alt" onclick="phraseView()">Show the phrase again</button><div id="m"></div></div>`);
+  if (!temp.idx) temp.idx = [...Array(12).keys()].sort(() => Math.random() - .5).slice(0, 3).sort((a, b) => a - b);
+  sub('Check your copy', `<p class="sub">Step 3 of 3 &middot; Confirm three words</p><div class="card">
+  ${temp.idx.map(i => `<label>Word number ${i + 1}</label><input class="vw" autocapitalize="none" autocomplete="off" spellcheck="false">`).join('')}
+  <button onclick="verifyDone()">Check and create wallet</button><div id="m"></div></div>`, 'phraseView()');
 }
 async function verifyDone() {
   const words = temp.phrase.split(' '), ins = [...document.querySelectorAll('.vw')];
@@ -258,16 +260,17 @@ async function verifyDone() {
 async function finish(secret, address, pw) {
   const rec = await seal(secret, address, pw);
   if (!save(rec)) return alert('This browser blocked storage (private mode?). The wallet was not saved.');
+  try { localStorage.removeItem(TXKEY); } catch {}
   wallet = mk(secret); temp = {}; for (const k in bals) delete bals[k];
   mainView();
 }
 
 function importView() {
-  show(`<h1>Import wallet</h1><div class="card">
+  sub('Import wallet', `<div class="card">
   <p class="note">Paste your 12 or 24 word phrase, or a private key. A wallet already stored here will be replaced.</p>
   <label>Recovery phrase or private key</label><textarea id="sec" autocapitalize="none" autocomplete="off" spellcheck="false"></textarea>
   <label>New password (at least 10 characters)</label><input id="p1" type="password" autocomplete="new-password">
-  <button onclick="importDo()">Import</button><button class="alt" onclick="home()">Back</button><div id="m"></div></div>`);
+  <button onclick="importDo()">Import</button><div id="m"></div></div>`, 'home()');
 }
 async function importDo() {
   const raw = $('#sec').value.trim(), pw = $('#p1').value;
@@ -305,7 +308,8 @@ const ERC20 = ['function name() view returns (string)', 'function symbol() view 
 const TKEY = 'mywallet.tokens.v1';
 const DEFAULTS = { 11155111: [{ a: '0xf884e202ba30181B4c32FDdd6390F15816da0b4A', s: 'DRX', d: 18 }, { a: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238', s: 'USDC', d: 6 }] };
 function allTokens() { try { return JSON.parse(localStorage.getItem(TKEY)) || {}; } catch { return {}; } }
-function tokens() { const id = NETS[net].id; return allTokens()[id] || DEFAULTS[id] || []; }
+function tokensFor(id) { return allTokens()[id] || DEFAULTS[id] || []; }
+function tokens() { return tokensFor(NETS[net].id); }
 function saveTokens(l) { const a = allTokens(); a[NETS[net].id] = l; try { localStorage.setItem(TKEY, JSON.stringify(a)); } catch {} }
 const HKEY = 'mywallet.history.v1';
 const hist = () => { try { return JSON.parse(localStorage.getItem(HKEY)) || []; } catch { return []; } };
@@ -392,8 +396,10 @@ setInterval(() => {
   if (!wallet || document.hidden || (!$('#bal') && !$('#db'))) return;
   refresh();
   if (++tickN % 3 === 0) { syncHistory(); checkPending(); }
+  if (tickN % 6 === 0) { loadPrices(); refreshAll(); }
 }, 10000);
-const prov = () => { const n = NETS[net]; return new ethers.JsonRpcProvider(n.rpc, n.id, { staticNetwork: ethers.Network.from(n.id) }); };
+const provFor = n => new ethers.JsonRpcProvider(n.rpc, n.id, { staticNetwork: ethers.Network.from(n.id) });
+const prov = () => provFor(NETS[net]);
 
 const IC = {
   up: '<svg viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg>',
@@ -419,13 +425,62 @@ function mainView() {
   show(`<div class="hdr"><div class="brand">${LOGO}<span>Dorax</span></div><button class="pill" onclick="networksView()"><i style="background:${n.c || '#6b7a99'}"></i><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(n.name)}</span>${IC.chev}</button></div>
   ${n.test ? '' : `<div class="card warn" style="margin:0 0 12px">${esc(n.name)} is a real-money network. Check every address twice.</div>`}
   <section class="bc"><div class="bt1"><div class="acc"><div class="avt" style="background:linear-gradient(135deg,hsl(${hue} 80% 65%),hsl(${(hue + 60) % 360} 80% 50%))"></div><div><div class="an">Account 1</div><button class="ad" onclick="copyText('${wallet.address}', this)">${short(wallet.address)}</button></div></div><button class="ib" onclick="addView()" aria-label="Add token">${IC.plus}</button></div>
-  <div class="bl"><span>Balance</span><div class="bv" id="bal">...</div></div>
-  <div class="ac"><button class="ab" onclick="sendView()">${IC.up}<span>Send</span></button><button class="ab" onclick="receiveView()">${IC.down}<span>Receive</span></button><button class="ab" onclick="copyText('${wallet.address}', this.querySelector('span'))">${IC.copy}<span>Copy</span></button></div></section>
+  <div class="bl"><span>Total balance</span><div class="bv" id="tot">...</div><div class="bs2" id="bal">...</div></div>
+  <div class="ac"><button class="ab" onclick="sendView('')">${IC.up}<span>Send</span></button><button class="ab" onclick="receiveView('')">${IC.down}<span>Receive</span></button><button class="ab" onclick="copyText('${wallet.address}', this.querySelector('span'))">${IC.copy}<span>Copy</span></button></div></section>
   <div class="tabs"><button id="t-assets" onclick="setTab('assets')">Assets</button><button id="t-activity" onclick="setTab('activity')">Activity</button><button id="t-settings" onclick="setTab('settings')">Settings</button></div>
-  <div id="p-assets"><div class="list"><div class="row clk" onclick="assetView('')"><div class="ti" style="background:${n.c || '#6b7a99'}">${esc(n.sym.slice(0, 1))}</div><div class="rm"><b>${esc(n.sym)}</b><span>${esc(n.name)}</span></div><div class="rb" id="nb">...</div></div><div id="tk">${tokens().map(tokRow).join('')}</div></div><button class="lnk" onclick="addView()">+ Add token</button></div>
+  <div id="p-assets"><div class="list"><div class="row clk" onclick="assetView('')"><div class="ti" style="background:${n.c || '#6b7a99'}">${esc(n.sym.slice(0, 1))}</div><div class="rm"><b>${esc(n.sym)}</b><span id="np">${esc(n.name)}</span></div><div class="rb"><div id="nb">...</div><small class="fv" id="nv"></small></div></div><div id="tk">${tokens().map(tokRow).join('')}</div></div><button class="lnk" onclick="addView()">+ Add token</button><p class="note" id="pnote" style="margin-top:12px"></p></div>
   <div id="p-activity"><div class="list" id="hs"></div><p class="note" id="hn" style="margin-top:12px"></p><p class="note">Shows what you sent from this app and what you received.</p></div>
-  <div id="p-settings"><button class="srow" style="margin-top:0" onclick="networksView()">Networks <span>&rsaquo;</span></button><button class="srow" onclick="manageView()">Manage tokens <span>&rsaquo;</span></button><button class="srow" onclick="secView()">Recovery phrase and private key <span>&rsaquo;</span></button><button class="srow" onclick="backupView()">Export encrypted backup <span>&rsaquo;</span></button><button class="srow" onclick="lock()">Lock wallet <span>&rsaquo;</span></button><button class="srow dng" onclick="wipeView()">Remove wallet from this device</button><p class="note" style="margin-top:16px">Dorax Wallet. Non-custodial: your keys never leave this device.</p></div>`, null);
-  setTab(tab); paint(); refresh(); syncHistory(); renderHist(); checkPending();
+  <div id="p-settings"><button class="srow" style="margin-top:0" onclick="networksView()">Networks <span>&rsaquo;</span></button><button class="srow" onclick="manageView()">Manage tokens <span>&rsaquo;</span></button><button class="srow" onclick="txpwView()">Transaction password <span>${loadTx() ? 'On' : 'Off'} &rsaquo;</span></button><button class="srow" onclick="secView()">Recovery phrase and private key <span>&rsaquo;</span></button><button class="srow" onclick="backupView()">Export encrypted backup <span>&rsaquo;</span></button><button class="srow" onclick="lock()">Lock wallet <span>&rsaquo;</span></button><button class="srow dng" onclick="wipeView()">Remove wallet from this device</button><p class="note" style="margin-top:16px">Dorax Wallet. Non-custodial: your keys never leave this device.</p></div>`, null);
+  setTab(tab); paint(); refresh(); refreshAll(); loadPrices(); syncHistory(); renderHist(); checkPending();
+}
+const loadTx = () => { try { return JSON.parse(localStorage.getItem(TXKEY)); } catch { return null; } };
+async function txDerive(pw, salt, iter) {
+  const base = await crypto.subtle.importKey('raw', enc.encode(pw), 'PBKDF2', false, ['deriveBits']);
+  return b64(await crypto.subtle.deriveBits({ name: 'PBKDF2', salt, iterations: iter, hash: 'SHA-256' }, base, 256));
+}
+async function txCheck(pw) { const r = loadTx(); if (!r) return true; try { return (await txDerive(pw, unb64(r.salt), r.iter)) === r.h; } catch { return false; } }
+async function txSave(pw) {
+  const salt = crypto.getRandomValues(new Uint8Array(16)), iter = 300000;
+  localStorage.setItem(TXKEY, JSON.stringify({ salt: b64(salt), iter, h: await txDerive(pw, salt, iter) }));
+}
+function txpwView() {
+  tab = 'settings';
+  const on = !!loadTx();
+  sub('Transaction password', on ? `<div class="card"><b>Status: On</b><p class="note" style="margin:6px 0 0">Every send asks for this password before it goes out.</p></div>
+  <div class="card"><h2>Change password</h2><label>Current transaction password</label><input id="tp0" type="password" autocomplete="off"><label>New password (at least 6 characters)</label><input id="tp1" type="password" autocomplete="new-password"><label>Repeat new password</label><input id="tp2" type="password" autocomplete="new-password"><button onclick="txChange()">Change password</button></div>
+  <div class="card"><h2>Turn off</h2><label>Current transaction password</label><input id="tp3" type="password" autocomplete="off"><button class="alt danger" onclick="txOff()">Turn off</button></div>
+  <div class="card"><h2>Forgot it?</h2><p class="note">Enter your wallet password to remove the transaction password.</p><label>Wallet password</label><input id="tp4" type="password" autocomplete="current-password"><button class="alt" onclick="txReset()">Remove with wallet password</button></div><div id="m"></div>`
+  : `<div class="card"><b>Status: Off</b><p class="note" style="margin:6px 0 0">Add a separate password that must be entered to confirm every send. Use something different from your wallet password.</p></div>
+  <div class="card"><label>New transaction password (at least 6 characters)</label><input id="tp1" type="password" autocomplete="new-password"><label>Repeat password</label><input id="tp2" type="password" autocomplete="new-password"><button onclick="txSet()">Turn on</button><div id="m"></div></div>`);
+}
+async function txSet() {
+  const a = $('#tp1').value, b = $('#tp2').value;
+  if (a.length < 6) return msg('m', 'Use at least 6 characters.');
+  if (a !== b) return msg('m', 'The passwords do not match.');
+  msg('m', 'Saving...', 1); await wait();
+  try { await txSave(a); } catch { return msg('m', 'Could not save in this browser.'); }
+  toast('Transaction password is on'); txpwView();
+}
+async function txChange() {
+  const a = $('#tp1').value, b = $('#tp2').value;
+  msg('m', 'Checking...', 1); await wait();
+  if (!(await txCheck($('#tp0').value))) return msg('m', 'The current transaction password is wrong.');
+  if (a.length < 6) return msg('m', 'Use at least 6 characters.');
+  if (a !== b) return msg('m', 'The new passwords do not match.');
+  try { await txSave(a); } catch { return msg('m', 'Could not save in this browser.'); }
+  toast('Transaction password changed'); txpwView();
+}
+async function txOff() {
+  msg('m', 'Checking...', 1); await wait();
+  if (!(await txCheck($('#tp3').value))) return msg('m', 'The current transaction password is wrong.');
+  try { localStorage.removeItem(TXKEY); } catch {}
+  toast('Transaction password is off'); txpwView();
+}
+async function txReset() {
+  msg('m', 'Checking...', 1); await wait();
+  try { await openSeal(load(), $('#tp4').value); } catch { return msg('m', 'The wallet password is wrong.'); }
+  try { localStorage.removeItem(TXKEY); } catch {}
+  toast('Transaction password removed'); txpwView();
 }
 function pickNet(k) { if (!NETS[k]) return; setNet(k); tab = 'assets'; if (wallet) mainView(); else home(); }
 function networksView() {
@@ -458,47 +513,117 @@ function rmNet(k) {
   try { localStorage.setItem(NKEY, JSON.stringify(customNets().filter(n => 'c' + n.id !== k))); } catch {}
   buildNets(); if (net === k) setNet('sepolia'); networksView();
 }
-function receiveView() {
-  sub('Receive', `<div class="rcv"><div class="qrbox" id="qr"></div><p class="note" style="margin-top:14px">Scan to receive</p><div class="addr" style="font-size:14px;padding:0 8px">${wallet.address}</div><button onclick="copyText('${wallet.address}', this)">Copy address</button><p class="note" style="margin-top:14px">Network: ${esc(NETS[net].name)}. The same address works on all Ethereum-style networks, so the sender must pick the right one.</p></div>`);
+function receiveView(ret) {
+  if (ret !== undefined) temp.rret = ret;
+  sub('Receive', `<div class="rcv"><div class="qrbox" id="qr"></div><p class="note" style="margin-top:14px">Scan to receive</p><div class="addr" style="font-size:14px;padding:0 8px">${wallet.address}</div><button onclick="copyText('${wallet.address}', this)">Copy address</button><p class="note" style="margin-top:14px">Network: ${esc(NETS[net].name)}. The same address works on all Ethereum-style networks, so the sender must pick the right one.</p></div>`, temp.rret || 'mainView()');
   drawQR();
 }
-function addView() {
-  sub('Add token', `<div class="fm"><div class="row" style="border:0;padding:0 0 4px"><div class="ti" style="background:${NETS[net].c || '#6b7a99'}">${esc(NETS[net].sym.slice(0, 1))}</div><div class="rm"><b>${esc(NETS[net].name)}</b><span>Tokens are added per network. Change the network on the home screen first.</span></div></div><label>Token contract address</label><input id="ta" autocomplete="off" spellcheck="false" placeholder="0x..."><button onclick="lookupToken()">Look up token</button><div id="tm"></div><p class="note" style="margin-top:14px">Anyone can create a token with any name, even a fake "USDC". Add only addresses from the official source.</p></div>`);
+function addView(ret) {
+  sub('Add token', `<div class="fm"><div class="row" style="border:0;padding:0 0 4px"><div class="ti" style="background:${NETS[net].c || '#6b7a99'}">${esc(NETS[net].sym.slice(0, 1))}</div><div class="rm"><b>${esc(NETS[net].name)}</b><span>Tokens are added per network. Change the network on the home screen first.</span></div></div><label>Token contract address</label><input id="ta" autocomplete="off" spellcheck="false" placeholder="0x..."><button onclick="lookupToken()">Look up token</button><div id="tm"></div><p class="note" style="margin-top:14px">Anyone can create a token with any name, even a fake "USDC". Add only addresses from the official source.</p></div>`, ret || 'mainView()');
 }
-function sendView() {
+function sendView(ret) {
+  if (ret !== undefined) temp.ret = ret;
   const f = temp.form || {};
   sub('Send', `<div class="fm"><p class="note" style="margin:0">Network: <b>${esc(NETS[net].name)}</b></p><label>Asset</label><select id="as"><option value="">${esc(NETS[net].sym)}</option>${tokens().map(t => `<option value="${esc(t.a)}" ${t.a === f.as ? 'selected' : ''}>${esc(t.s)}</option>`).join('')}</select>
   <label>Recipient address</label><div class="in2"><input id="to" autocomplete="off" spellcheck="false" placeholder="0x..." value="${esc(f.to || '')}"><button class="pb" onclick="pasteTo()">Paste</button></div>
   <label>Amount</label><input id="amt" inputmode="decimal" placeholder="0.0" value="${esc(f.amt || '')}">
-  <button onclick="sendPrep()">Continue</button><div id="m"></div></div>`);
+  <button onclick="sendPrep()">Continue</button><div id="m"></div></div>`, temp.ret || 'mainView()');
 }
 async function pasteTo() {
   try { $('#to').value = (await navigator.clipboard.readText()).trim(); } catch { msg('m', 'Paste is not allowed here. Press and hold in the field to paste.'); }
 }
 const bals = {};
-let refreshing = false;
-function tokRow(t, i) { return `<div class="row clk" onclick="assetView('${t.a}')"><div class="ti" style="background:hsl(${((t.s.charCodeAt(0) || 65) * 47) % 360} 55% 48%)">${esc(t.s.slice(0, 1))}</div><div class="rm"><b>${esc(t.s)}</b><span>${esc(short(t.a))}</span></div><div class="rb" id="tb${i}">...</div></div>`; }
+let refreshing = false, refreshingAll = false, lastAll = 0, lastPrice = 0;
+const CHAIN = { 1: 'ethereum', 56: 'bsc', 137: 'polygon', 42161: 'arbitrum', 10: 'optimism', 8453: 'base', 43114: 'avax' };
+const GECKO = { 1: 'ethereum', 56: 'binancecoin', 137: 'polygon-ecosystem-token', 42161: 'ethereum', 10: 'ethereum', 8453: 'ethereum', 43114: 'avalanche-2' };
+const PKEY = 'mywallet.prices.v1';
+let prices = {}, pricesAt = 0, pricesFail = false;
+try { const c = JSON.parse(localStorage.getItem(PKEY)); if (c && c.p) { prices = c.p; pricesAt = c.t || 0; } } catch {}
+const pkey = (id, a) => a ? CHAIN[id] + ':' + a.toLowerCase() : 'coingecko:' + GECKO[id];
+const priceOf = (id, a) => CHAIN[id] ? prices[pkey(id, a)] : undefined;
+const usd = v => v === 0 ? '$0.00' : v < 0.01 ? '<$0.01' : '$' + v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const px = v => v >= 1 ? '$' + v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '$' + v.toPrecision(4);
+function tokRow(t, i) { return `<div class="row clk" onclick="assetView('${t.a}')"><div class="ti" style="background:hsl(${((t.s.charCodeAt(0) || 65) * 47) % 360} 55% 48%)">${esc(t.s.slice(0, 1))}</div><div class="rm"><b>${esc(t.s)}</b><span id="tp${i}">${esc(short(t.a))}</span></div><div class="rb"><div id="tb${i}">...</div><small class="fv" id="tv${i}"></small></div></div>`; }
+async function fetchBals(nk, me) {
+  const n = NETS[nk], list = tokensFor(n.id), p = provFor(n), res = {};
+  try { const f = ethers.formatEther(await p.getBalance(me)); res[nk + ':'] = { s: fmt(f), v: Number(f) }; } catch { res[nk + ':'] = null; }
+  await Promise.all(list.map(async t => {
+    try { const f = ethers.formatUnits(await new ethers.Contract(t.a, ERC20, p).balanceOf(me), t.d); res[nk + ':' + t.a] = { s: fmt(f), v: Number(f) }; } catch { res[nk + ':' + t.a] = null; }
+  }));
+  p.destroy(); return res;
+}
+function merge(res) { for (const k in res) { if (res[k]) bals[k] = res[k]; else if (bals[k] === undefined) bals[k] = null; } }
 async function refresh() {
   if (!wallet || refreshing) return;
   refreshing = true;
-  const nk = net, me = wallet.address, list = tokens(), p = prov(), res = {};
-  try { res[nk + ':'] = fmt(ethers.formatEther(await p.getBalance(me))); } catch { res[nk + ':'] = null; }
-  await Promise.all(list.map(async t => {
-    try { res[nk + ':' + t.a] = fmt(ethers.formatUnits(await new ethers.Contract(t.a, ERC20, p).balanceOf(me), t.d)); } catch { res[nk + ':' + t.a] = null; }
-  }));
-  p.destroy(); refreshing = false;
+  const nk = net, me = wallet.address, res = await fetchBals(nk, me);
+  refreshing = false;
   if (!wallet || wallet.address !== me) return;
-  for (const k in res) if (res[k] !== null || bals[k] === undefined) bals[k] = res[k] === null && bals[k] !== undefined ? bals[k] : res[k];
-  paint();
+  merge(res); paint();
   if (net !== nk) refresh();
+}
+async function refreshAll(force) {
+  if (!wallet || refreshingAll || (!force && Date.now() - lastAll < 45000)) return;
+  refreshingAll = true; lastAll = Date.now();
+  const me = wallet.address, ks = Object.keys(NETS).filter(k => !NETS[k].test && CHAIN[NETS[k].id]);
+  const parts = await Promise.all(ks.map(k => fetchBals(k, me)));
+  refreshingAll = false;
+  if (!wallet || wallet.address !== me) return;
+  parts.forEach(merge); paint();
+}
+async function loadPrices(force) {
+  if (!force && Date.now() - lastPrice < 45000) return;
+  lastPrice = Date.now();
+  const keys = new Set();
+  Object.values(NETS).forEach(n => { if (n.test || !CHAIN[n.id]) return; keys.add(pkey(n.id)); tokensFor(n.id).forEach(t => keys.add(pkey(n.id, t.a))); });
+  const ctl = new AbortController(), to = setTimeout(() => ctl.abort(), 9000);
+  try {
+    const r = await fetch('https://coins.llama.fi/prices/current/' + [...keys].join(','), { signal: ctl.signal });
+    if (!r.ok) throw 0;
+    const j = await r.json(), low = {};
+    for (const k in j.coins || {}) low[k.toLowerCase()] = j.coins[k].price;
+    keys.forEach(k => { const v = low[k.toLowerCase()]; if (typeof v === 'number') prices[k] = v; });
+    pricesAt = Date.now(); pricesFail = false;
+    try { localStorage.setItem(PKEY, JSON.stringify({ t: pricesAt, p: prices })); } catch {}
+  } catch { pricesFail = true; }
+  finally { clearTimeout(to); }
+  paint();
+}
+function totalUSD() {
+  let sum = 0, missing = false;
+  for (const k of Object.keys(NETS)) {
+    const n = NETS[k]; if (n.test || !CHAIN[n.id]) continue;
+    for (const a of [''].concat(tokensFor(n.id).map(t => t.a))) {
+      const b = bals[k + ':' + a]; if (!b || !(b.v > 0)) continue;
+      const pr = priceOf(n.id, a); if (pr === undefined) { missing = true; continue; }
+      sum += b.v * pr;
+    }
+  }
+  return { sum, missing };
 }
 function paint() {
   if (!wallet) return;
-  const n = NETS[net], val = x => x === undefined ? '...' : x === null ? 'Offline' : x, v = bals[net + ':'];
-  const bal = $('#bal'); if (bal) bal.innerHTML = v === undefined ? '...' : v === null ? '<small>Could not load</small>' : esc(v) + ' <small>' + esc(n.sym) + '</small>';
+  const n = NETS[net], id = n.id, val = x => x === undefined ? '...' : x === null ? 'Offline' : x.s, v = bals[net + ':'];
+  const bal = $('#bal'); if (bal) bal.innerHTML = v === undefined ? '...' : v === null ? 'Could not load' : esc(v.s) + ' ' + esc(n.sym);
+  const tot = $('#tot');
+  if (tot) { const have = Object.keys(prices).length, T = totalUSD(); tot.textContent = !have ? (pricesFail ? '$\u2014' : '...') : usd(T.sum) + (T.missing ? '+' : ''); }
+  const np = priceOf(id, ''), npe = $('#np'); if (npe) npe.textContent = np !== undefined ? px(np) : n.name;
   const nb = $('#nb'); if (nb) nb.textContent = val(v);
-  tokens().forEach((t, i) => { const e = $('#tb' + i); if (e) e.textContent = val(bals[net + ':' + t.a]); });
-  const d = $('#db'); if (d) d.textContent = val(bals[net + ':' + (temp.asset || '')]);
+  const nv = $('#nv'); if (nv) nv.textContent = np !== undefined && v ? usd(v.v * np) : '';
+  tokens().forEach((t, i) => {
+    const b = bals[net + ':' + t.a], pr = priceOf(id, t.a);
+    const e1 = $('#tb' + i), e2 = $('#tp' + i), e3 = $('#tv' + i);
+    if (e1) e1.textContent = val(b);
+    if (e2) e2.textContent = pr !== undefined ? px(pr) : short(t.a);
+    if (e3) e3.textContent = pr !== undefined && b ? usd(b.v * pr) : '';
+  });
+  const d = $('#db');
+  if (d) {
+    const a = temp.asset || '', b = bals[net + ':' + a], pr = priceOf(id, a), tk = a ? tokens().find(t => t.a === a) : null, sym = tk ? tk.s : n.sym;
+    d.textContent = val(b);
+    const dv = $('#dv'); if (dv) dv.textContent = pr !== undefined ? (b ? '\u2248 ' + usd(b.v * pr) + ' \u00b7 ' : '') + px(pr) + ' per ' + sym : n.test ? 'Test network assets have no market value' : 'Price not available';
+  }
+  const pn = $('#pnote'); if (pn) pn.textContent = pricesFail ? 'Prices could not be loaded. Showing the last known values.' : 'Prices come from DefiLlama and update about once a minute. Test networks have no value.';
 }
 let toastT;
 function toast(t) { const e = $('#toast'); if (!e) return; e.textContent = t; e.classList.add('on'); clearTimeout(toastT); toastT = setTimeout(() => e.classList.remove('on'), 4500); }
@@ -523,25 +648,26 @@ async function lookupToken() {
   } catch { msg('tm', 'This does not look like a standard token on this network.'); }
   finally { p.destroy(); }
 }
-function addToken() { if (!temp.tkn) return; saveTokens([...tokens(), temp.tkn]); temp.tkn = null; tab = 'assets'; mainView(); }
+function addToken() { if (!temp.tkn) return; saveTokens([...tokens(), temp.tkn]); temp.tkn = null; tab = 'assets'; lastAll = 0; lastPrice = 0; mainView(); }
 function manageView() {
   tab = 'settings';
   const l = tokens();
-  sub('Manage tokens', `<p class="note">Tokens on <b>${esc(NETS[net].name)}</b>. Removing a token only hides it here. Your tokens stay in your wallet.</p>${l.length ? `<div class="list">${l.map((t, i) => `<div class="row"><div class="ti" style="background:hsl(${((t.s.charCodeAt(0) || 65) * 47) % 360} 55% 48%)">${esc(t.s.slice(0, 1))}</div><div class="rm"><b>${esc(t.s)}</b><span>${esc(short(t.a))}</span></div><button class="sm alt danger" style="margin:0" onclick="rmToken(${i})">Remove</button></div>`).join('')}</div>` : '<p class="note">No tokens added on this network.</p>'}<button class="alt" onclick="addView()">+ Add token</button>`);
+  sub('Manage tokens', `<p class="note">Tokens on <b>${esc(NETS[net].name)}</b>. Removing a token only hides it here. Your tokens stay in your wallet.</p>${l.length ? `<div class="list">${l.map((t, i) => `<div class="row"><div class="ti" style="background:hsl(${((t.s.charCodeAt(0) || 65) * 47) % 360} 55% 48%)">${esc(t.s.slice(0, 1))}</div><div class="rm"><b>${esc(t.s)}</b><span>${esc(short(t.a))}</span></div><button class="sm alt danger" style="margin:0" onclick="rmToken(${i})">Remove</button></div>`).join('')}</div>` : '<p class="note">No tokens added on this network.</p>'}<button class="alt" onclick="addView('manageView()')">+ Add token</button>`);
 }
 function rmToken(i) {
   if (!confirm('Remove this token from the list? Your tokens are not deleted.')) return;
   const l = tokens(); l.splice(i, 1); saveTokens(l); manageView();
 }
-function sendFor(a) { temp.form = { as: a, to: '', amt: '' }; sendView(); }
+function sendFor(a) { temp.form = { as: a, to: '', amt: '' }; sendView("assetView('" + a + "')"); }
+function receiveFor(a) { receiveView("assetView('" + a + "')"); }
 function assetView(a) {
   temp.asset = a;
   const n = NETS[net], tk = a ? tokens().find(t => t.a === a) : null;
   if (a && !tk) return mainView();
   const sym = tk ? tk.s : n.sym, bg = tk ? `hsl(${((sym.charCodeAt(0) || 65) * 47) % 360} 55% 48%)` : (n.c || '#6b7a99');
   const l = hist().filter(h => h.c === n.id && h.f === wallet.address && h.s === sym).sort((x, y) => y.t - x.t).slice(0, 15);
-  sub(esc(sym), `<div class="cfm"><div class="ti big" style="background:${bg}">${esc(sym.slice(0, 1))}</div><div class="ca"><span id="db">...</span> <small>${esc(sym)}</small></div><p class="note">${tk ? 'Token' : 'Native coin'} on ${esc(n.name)}</p></div>
-  <div class="ac2"><button class="ab2" onclick="sendFor('${a}')">${IC.up}<span>Send</span></button><button class="ab2" onclick="receiveView()">${IC.down}<span>Receive</span></button></div>
+  sub(esc(sym), `<div class="cfm"><div class="ti big" style="background:${bg}">${esc(sym.slice(0, 1))}</div><div class="ca"><span id="db">...</span> <small>${esc(sym)}</small></div><p class="note" id="dv" style="margin:0 0 2px"></p><p class="note">${tk ? 'Token' : 'Native coin'} on ${esc(n.name)}</p></div>
+  <div class="ac2"><button class="ab2" onclick="sendFor('${a}')">${IC.up}<span>Send</span></button><button class="ab2" onclick="receiveFor('${a}')">${IC.down}<span>Receive</span></button></div>
   <h2>Details</h2><div class="list"><div class="kv"><span>Network</span><b>${esc(n.name)}</b></div><div class="kv"><span>Chain ID</span><b>${n.id}</b></div><div class="kv" ${tk ? '' : 'style="border:0"'}><span>Type</span><b>${tk ? 'ERC-20 token' : 'Native coin'}</b></div>${tk ? `<div class="kv"><span>Decimals</span><b>${tk.d}</b></div><div class="kv" style="border:0"><span>Contract (tap to copy)</span><b class="addr" style="cursor:pointer" onclick="copyText('${tk.a}', this)">${esc(short(tk.a))}</b></div>` : ''}</div>
   ${n.scan ? `<a class="lnk" style="display:block;text-align:center;padding:14px;border-radius:14px;margin-top:12px" href="${n.scan}/${tk ? 'token/' + tk.a : 'address/' + wallet.address}" target="_blank" rel="noopener">View on explorer</a>` : ''}
   <h2 style="margin-top:18px">Activity</h2><div class="list">${l.length ? l.map(histRow).join('') : '<p class="note" style="padding:16px 0 2px">No transactions with this asset yet.</p>'}</div>`, 'mainView()');
@@ -574,7 +700,8 @@ async function sendPrep() {
     <div class="kv"><span>Network</span><b>${NETS[net].name}</b></div>
     ${tk ? `<div class="kv"><span>Token</span><b class="addr">${esc(short(tk.a))}</b></div>` : ''}
     <div class="kv"><span>Max network fee</span><b>${esc(fmt(ethers.formatEther(fee)))} ${NETS[net].sym}</b></div>
-    <button id="cf" onclick="sendNow()">Confirm</button><button class="alt" onclick="sendView()">Back</button>`, 'sendView()');
+    ${loadTx() ? '<label>Transaction password</label><input id="tp" type="password" autocomplete="off" placeholder="Enter your transaction password">' : ''}
+    <button id="cf" onclick="sendNow()">Confirm</button><button class="alt" onclick="sendView()">Back</button><div id="m"></div>`, 'sendView()');
   } catch (e) { msg('m', 'Failed: ' + (e.shortMessage || e.message)); }
   finally { p.destroy(); }
 }
@@ -595,8 +722,21 @@ function stg(sid, k, title, text, extra) {
   $('#stn').style.display = run ? '' : 'none';
 }
 function steps(n) { return '<div class="steps">' + ['Signed', 'Broadcast', 'Confirmed'].map((x, i) => `<div class="${i < n ? 'on' : i === n ? 'cur' : ''}"><i></i>${x}</div>`).join('') + '</div>'; }
-function fin() { temp.form = null; tab = 'activity'; if (wallet) mainView(); else home(); }
+function fin() { temp.form = null; temp.ret = ''; tab = 'activity'; if (wallet) mainView(); else home(); }
 async function sendNow() {
+  if (temp.busy) return;
+  const cf = $('#cf'); if (cf) cf.disabled = true;
+  if (loadTx()) {
+    if (Date.now() < (temp.lock || 0)) { if (cf) cf.disabled = false; return msg('m', 'Too many wrong attempts. Wait 30 seconds.'); }
+    const ok = await txCheck(($('#tp') || {}).value || '');
+    if (!ok) {
+      temp.fails = (temp.fails || 0) + 1;
+      if (temp.fails >= 5) { temp.lock = Date.now() + 30000; temp.fails = 0; }
+      if (cf) cf.disabled = false;
+      return msg('m', 'Wrong transaction password.');
+    }
+    temp.fails = 0;
+  }
   if (temp.busy) return;
   temp.busy = true;
   const sid = ++stageSeq, p = prov(), t = temp.tx, me = wallet.address, id = NETS[net].id, link = NETS[net].scan, what = t.amt + ' ' + t.sym + ' to ' + short(t.to);
@@ -651,8 +791,8 @@ function backupView() {
   <button onclick="copyText($('#bk').value, this)">Copy backup</button><button class="alt" onclick="mainView()">Back</button></div>`);
 }
 function restoreView() {
-  show(`<h1>Restore backup</h1><div class="card"><label>Paste the encrypted backup text</label><textarea id="bk"></textarea>
-  <button onclick="restoreDo()">Restore</button><button class="alt" onclick="home()">Back</button><div id="m"></div></div>`);
+  sub('Restore backup', `<div class="card"><label>Paste the encrypted backup text</label><textarea id="bk"></textarea>
+  <button onclick="restoreDo()">Restore</button><div id="m"></div></div>`, 'home()');
 }
 function restoreDo() {
   try {
@@ -671,7 +811,7 @@ function wipeView() {
 }
 function wipeDo() {
   if ($('#c').value.trim() !== 'DELETE') return msg('m', 'Type DELETE exactly.');
-  try { localStorage.removeItem(KEY); } catch {}
+  try { localStorage.removeItem(KEY); localStorage.removeItem(TXKEY); } catch {}
   wallet = null; clearTimeout(timer); home();
 }
 
