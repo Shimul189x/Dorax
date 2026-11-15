@@ -134,6 +134,16 @@ a{color:var(--link);font-weight:600;text-decoration:none}
 .toast.on{opacity:1;transform:translate(-50%,0)}
 .fv{display:block;font-size:12px;color:var(--mute);font-weight:500;min-height:1em}
 .bs2{font-size:15px;opacity:.92;margin-top:2px;word-break:break-word}
+.ov{position:fixed;inset:0;z-index:30;background:rgba(8,14,32,.55);-webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px);display:flex;align-items:flex-end;justify-content:center;animation:fadeo .2s ease both}
+.sheet{width:100%;max-width:480px;background:var(--card);border-radius:24px 24px 0 0;padding:22px 20px 26px;box-shadow:0 -20px 40px -20px rgba(0,0,0,.4);animation:up .25s ease both}
+@media(min-width:520px){.ov{align-items:center}.sheet{border-radius:24px}}
+.shi{width:52px;height:52px;margin:0 auto 10px;border-radius:50%;background:var(--sur);color:var(--acc);display:grid;place-items:center}
+.shi svg{width:24px;height:24px}
+.sht{text-align:center;font-size:18px;font-weight:700}
+.shake{animation:shake .35s}
+@keyframes fadeo{from{opacity:0}to{opacity:1}}
+@keyframes up{from{transform:translateY(40px);opacity:0}to{transform:none;opacity:1}}
+@keyframes shake{20%,60%{transform:translateX(-8px)}40%,80%{transform:translateX(8px)}}
 </style>
 </head>
 <body>
@@ -300,7 +310,7 @@ async function unlock() {
   try { wallet = mk(await openSeal(load(), $('#pw').value)); mainView(); }
   catch { msg('m', 'Wrong password.'); }
 }
-function lock() { wallet = null; clearTimeout(timer); for (const k in bals) delete bals[k]; unlockView(); }
+function lock() { closeSheet(); wallet = null; clearTimeout(timer); for (const k in bals) delete bals[k]; unlockView(); }
 function arm() { clearTimeout(timer); timer = setTimeout(lock, 300000); }
 ['click', 'touchstart', 'keydown'].forEach(e => document.addEventListener(e, () => { if (wallet) arm(); }, { passive: true }));
 
@@ -434,6 +444,36 @@ function mainView() {
   setTab(tab); paint(); refresh(); refreshAll(); loadPrices(); syncHistory(); renderHist(); checkPending();
 }
 const loadTx = () => { try { return JSON.parse(localStorage.getItem(TXKEY)); } catch { return null; } };
+let txFails = 0, txLockUntil = 0;
+function closeSheet() { const o = $('#ov'); if (o) o.remove(); }
+function askTxPw() {
+  const wait = Math.ceil((txLockUntil - Date.now()) / 1000);
+  if (wait > 0) return toast('Too many wrong attempts. Try again in ' + wait + ' seconds.');
+  closeSheet();
+  const t = temp.tx || {}, o = document.createElement('div');
+  o.className = 'ov'; o.id = 'ov';
+  o.innerHTML = `<div class="sheet" id="sh" role="dialog" aria-modal="true"><div class="shi">${IC.lock}</div><div class="sht">Transaction password</div><p class="note" style="text-align:center;margin:4px 0 14px">Enter your transaction password to send ${esc(t.amt || '')} ${esc(t.sym || '')}.</p><input id="tpw" type="password" autocomplete="off" placeholder="Password" onkeydown="if(event.key==='Enter')txSubmit()"><div class="msg err" id="tpm" style="min-height:1.2em"></div><button id="tpb" onclick="txSubmit()">Confirm</button><button class="alt" onclick="closeSheet()">Cancel</button></div>`;
+  document.body.appendChild(o);
+  setTimeout(() => { const i = $('#tpw'); if (i) i.focus(); }, 60);
+}
+async function txSubmit() {
+  const inp = $('#tpw'), btn = $('#tpb');
+  if (!inp || btn.disabled) return;
+  btn.disabled = true;
+  const ok = await txCheck(inp.value);
+  if (ok) { txFails = 0; temp.auth = Date.now(); closeSheet(); sendNow(); return; }
+  txFails++;
+  if (txFails >= 3) {
+    txFails = 0; txLockUntil = Date.now() + 30000;
+    closeSheet(); temp.busy = false; temp.tx = null; temp.form = null; temp.ret = ''; tab = 'assets';
+    mainView(); toast('Send cancelled: 3 wrong passwords');
+    return;
+  }
+  const left = 3 - txFails, sh = $('#sh');
+  $('#tpm').textContent = 'Wrong password. ' + left + (left === 1 ? ' attempt' : ' attempts') + ' left.';
+  inp.value = ''; inp.focus(); btn.disabled = false;
+  if (sh) { sh.classList.remove('shake'); void sh.offsetWidth; sh.classList.add('shake'); }
+}
 async function txDerive(pw, salt, iter) {
   const base = await crypto.subtle.importKey('raw', enc.encode(pw), 'PBKDF2', false, ['deriveBits']);
   return b64(await crypto.subtle.deriveBits({ name: 'PBKDF2', salt, iterations: iter, hash: 'SHA-256' }, base, 256));
@@ -700,7 +740,6 @@ async function sendPrep() {
     <div class="kv"><span>Network</span><b>${NETS[net].name}</b></div>
     ${tk ? `<div class="kv"><span>Token</span><b class="addr">${esc(short(tk.a))}</b></div>` : ''}
     <div class="kv"><span>Max network fee</span><b>${esc(fmt(ethers.formatEther(fee)))} ${NETS[net].sym}</b></div>
-    ${loadTx() ? '<label>Transaction password</label><input id="tp" type="password" autocomplete="off" placeholder="Enter your transaction password">' : ''}
     <button id="cf" onclick="sendNow()">Confirm</button><button class="alt" onclick="sendView()">Back</button><div id="m"></div>`, 'sendView()');
   } catch (e) { msg('m', 'Failed: ' + (e.shortMessage || e.message)); }
   finally { p.destroy(); }
@@ -725,19 +764,10 @@ function steps(n) { return '<div class="steps">' + ['Signed', 'Broadcast', 'Conf
 function fin() { temp.form = null; temp.ret = ''; tab = 'activity'; if (wallet) mainView(); else home(); }
 async function sendNow() {
   if (temp.busy) return;
-  const cf = $('#cf'); if (cf) cf.disabled = true;
   if (loadTx()) {
-    if (Date.now() < (temp.lock || 0)) { if (cf) cf.disabled = false; return msg('m', 'Too many wrong attempts. Wait 30 seconds.'); }
-    const ok = await txCheck(($('#tp') || {}).value || '');
-    if (!ok) {
-      temp.fails = (temp.fails || 0) + 1;
-      if (temp.fails >= 5) { temp.lock = Date.now() + 30000; temp.fails = 0; }
-      if (cf) cf.disabled = false;
-      return msg('m', 'Wrong transaction password.');
-    }
-    temp.fails = 0;
+    if (!temp.auth || Date.now() - temp.auth > 60000) return askTxPw();
+    temp.auth = 0;
   }
-  if (temp.busy) return;
   temp.busy = true;
   const sid = ++stageSeq, p = prov(), t = temp.tx, me = wallet.address, id = NETS[net].id, link = NETS[net].scan, what = t.amt + ' ' + t.sym + ' to ' + short(t.to);
   const view = h => link ? `<a class="vl" style="font-size:14px" href="${link}/tx/${h}" target="_blank" rel="noopener">View on explorer</a>` : '';
