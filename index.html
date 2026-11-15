@@ -324,7 +324,8 @@ function saveTokens(l) { const a = allTokens(); a[NETS[net].id] = l; try { local
 const HKEY = 'mywallet.history.v1';
 const hist = () => { try { return JSON.parse(localStorage.getItem(HKEY)) || []; } catch { return []; } };
 const putHist = l => { try { localStorage.setItem(HKEY, JSON.stringify(l)); } catch {} };
-const addHist = h => putHist([h, ...hist()].slice(0, 50));
+const addHist = h => putHist([h, ...hist()].slice(0, 300));
+const sig = h => (h.h || '').toLowerCase() + ':' + h.s + ':' + (h.d === 'in' ? 'in' : 'out');
 function setHist(hash, st) { const l = hist(), x = l.find(i => i.h === hash); if (x) { x.st = st; putHist(l); } }
 const fmt = v => { const [i, d = ''] = String(v).split('.'), t = d.slice(0, 6).replace(/0+$/, ''); return t ? i + '.' + t : (i === '0' && /[1-9]/.test(d) ? '<0.000001' : i); };
 const short = a => a.slice(0, 8) + '...' + a.slice(-6);
@@ -332,10 +333,11 @@ function histRow(h) {
   const inn = h.d === 'in', st = inn ? 'Received' : h.st === 'ok' ? 'Confirmed' : h.st === 'fail' ? 'Failed' : 'Pending';
   return `<div class="row"><div class="ti ${inn ? 'in' : 'out'}">${inn ? IC.down : IC.up}</div><div class="rm"><b>${inn ? 'Received' : 'Sent'}</b><span>${inn ? 'From' : 'To'} ${esc(short(inn ? h.from : h.to))}</span><span>${esc(new Date(h.t).toLocaleString())} &middot; ${st}</span>${NETS[net].scan ? `<a class="vl" href="${NETS[net].scan}/tx/${esc(h.h)}" target="_blank" rel="noopener">View on explorer</a>` : ''}</div><div class="rb ${inn ? 'pos' : ''}">${inn ? '+' : '-'}${esc(fmt(h.a))} ${esc(h.s)}</div></div>`;
 }
+let histN = 20;
 function renderHist() {
   const b = $('#hs'); if (!b || !wallet) return;
-  const id = NETS[net].id, l = hist().filter(h => h.c === id && h.f === wallet.address).sort((x, y) => y.t - x.t).slice(0, 20);
-  b.innerHTML = l.length ? l.map(histRow).join('') : '<p class="note" style="padding:16px 0 2px">No transactions yet.</p>';
+  const id = NETS[net].id, all = hist().filter(h => h.c === id && h.f === wallet.address).sort((x, y) => y.t - x.t), l = all.slice(0, histN);
+  b.innerHTML = l.length ? l.map(histRow).join('') + (all.length > histN ? '<button class="alt" style="margin:12px 0 4px" onclick="histN+=20;renderHist()">Show more</button>' : '') : '<p class="note" style="padding:16px 0 2px">No transactions yet.</p>';
 }
 async function checkPending() {
   if (!wallet) return;
@@ -345,7 +347,25 @@ async function checkPending() {
   try { for (const h of l) { const r = await p.getTransactionReceipt(h.h); if (r) setHist(h.h, r.status === 1 ? 'ok' : 'fail'); } } catch {}
   p.destroy(); renderHist();
 }
-const EXPL = { 11155111: 'https://eth-sepolia.blockscout.com', 1: 'https://eth.blockscout.com' };
+const EXPL = { 1: 'https://eth.blockscout.com', 11155111: 'https://eth-sepolia.blockscout.com', 10: 'https://optimism.blockscout.com', 8453: 'https://base.blockscout.com', 42161: 'https://arbitrum.blockscout.com', 137: 'https://polygon.blockscout.com', 84532: 'https://base-sepolia.blockscout.com' };
+const BKEY = 'mywallet.bskey.v1', HIDKEY = 'mywallet.hidden.v1';
+const bsKey = () => { try { return localStorage.getItem(BKEY) || ''; } catch { return ''; } };
+function bsUrls(id, path) {
+  const u = [], k = bsKey(), q = path.includes('?') ? '&' : '?';
+  if (k) u.push('https://api.blockscout.com/' + id + '/api/v2' + path + q + 'apikey=' + encodeURIComponent(k));
+  if (EXPL[id]) u.push(EXPL[id] + '/api/v2' + path);
+  return u;
+}
+async function bsGet(id, path) {
+  for (const u of bsUrls(id, path)) {
+    const ctl = new AbortController(), to = setTimeout(() => ctl.abort(), 12000);
+    try { const r = await fetch(u, { signal: ctl.signal }); if (r.ok) return await r.json(); } catch {} finally { clearTimeout(to); }
+  }
+  return null;
+}
+const hidden = () => { try { return JSON.parse(localStorage.getItem(HIDKEY)) || {}; } catch { return {}; } };
+function hideTok(id, a) { const h = hidden(); (h[id] = h[id] || []).push(a.toLowerCase()); try { localStorage.setItem(HIDKEY, JSON.stringify(h)); } catch {} }
+const found = {}, lastEx = {};
 let syncing = false;
 async function syncTokens() {
   const n = NETS[net], me = wallet.address, key = 'mywallet.scan.' + n.id + '.' + me, p = prov();
@@ -354,15 +374,17 @@ async function syncTokens() {
     let from = saved ? Number(saved) + 1 : latest - 20000;
     if (latest - from > 20000) from = latest - 20000;
     if (from < 0) from = 0;
-    const topic = ethers.id('Transfer(address,address,uint256)'), me32 = ethers.zeroPadValue(me, 32), have = new Set(hist().map(h => h.k));
+    const topic = ethers.id('Transfer(address,address,uint256)'), me32 = ethers.zeroPadValue(me, 32), have = new Set(hist().map(sig));
     for (const t of tokens()) {
       for (let s = from; s <= latest; s += 5000) {
         const logs = await p.getLogs({ address: t.a, topics: [topic, null, me32], fromBlock: s, toBlock: Math.min(s + 4999, latest) });
         for (const l of logs) {
-          const k = l.transactionHash + ':' + l.index, sender = ethers.getAddress('0x' + l.topics[1].slice(26));
-          if (have.has(k) || sender === me) continue;
-          const blk = await p.getBlock(l.blockNumber);
-          addIn({ h: l.transactionHash, k, c: n.id, f: me, to: me, from: sender, a: ethers.formatUnits(l.data, t.d), s: t.s, t: blk ? blk.timestamp * 1000 : Date.now(), st: 'ok', d: 'in' });
+          const sender = ethers.getAddress('0x' + l.topics[1].slice(26)), f = ethers.formatUnits(l.data, t.d);
+          if (sender === me || !(Number(f) > 0)) continue;
+          const e = { h: l.transactionHash, c: n.id, f: me, to: me, from: sender, a: f, s: t.s, t: 0, st: 'ok', d: 'in' };
+          if (have.has(sig(e))) continue;
+          const blk = await p.getBlock(l.blockNumber); e.t = blk ? blk.timestamp * 1000 : Date.now();
+          have.add(sig(e)); addIn(e);
         }
       }
     }
@@ -371,29 +393,84 @@ async function syncTokens() {
   } catch { return false; }
   finally { p.destroy(); }
 }
-async function syncEth() {
-  const base = EXPL[NETS[net].id], me = wallet.address;
-  if (!base) return null;
+async function syncExplorer(force) {
+  const n = NETS[net], id = n.id, me = wallet.address, ck = id + ':' + me;
+  if (!bsUrls(id, '/x').length) return null;
+  if (!force && Date.now() - (lastEx[ck] || 0) < 100000) return true;
+  lastEx[ck] = Date.now();
+  const [tx, tt, tk] = await Promise.all([bsGet(id, '/addresses/' + me + '/transactions'), bsGet(id, '/addresses/' + me + '/token-transfers?type=ERC-20'), bsGet(id, '/addresses/' + me + '/tokens?type=ERC-20')]);
+  if (!tx && !tt && !tk) { lastEx[ck] = 0; return false; }
+  if (!wallet || wallet.address !== me || NETS[net].id !== id) return true;
+  const ml = me.toLowerCase(), known = new Set(hist().map(sig)), mine = tokens(), fresh = [];
+  const add = h => { const k = sig(h); if (known.has(k)) return; known.add(k); addHist(h); if (h.d === 'in' && Date.now() - h.t < 600000) fresh.push(h); };
+  const dir = (x, a, s, hash, t, st) => {
+    const f = x.from && x.from.hash, to = x.to && x.to.hash;
+    if (!f || !to || !(Number(a) > 0)) return;
+    const fl = f.toLowerCase(), tl = to.toLowerCase();
+    if (fl === ml && tl !== ml) add({ h: hash, c: id, f: me, to: ethers.getAddress(to), a, s, t, st });
+    else if (tl === ml && fl !== ml && st === 'ok') add({ h: hash, c: id, f: me, to: me, from: ethers.getAddress(f), a, s, t, st: 'ok', d: 'in' });
+  };
   try {
-    const r = await fetch(base + '/api/v2/addresses/' + me + '/transactions?filter=to');
-    if (!r.ok) return false;
-    const j = await r.json(), have = new Set(hist().map(h => h.k));
-    for (const x of j.items || []) {
-      const from = x.from && x.from.hash, to = x.to && x.to.hash, k = x.hash + ':eth';
-      if (!from || !to || to.toLowerCase() !== me.toLowerCase() || from.toLowerCase() === me.toLowerCase() || !x.value || x.value === '0' || x.status !== 'ok' || have.has(k)) continue;
-      addIn({ h: x.hash, k, c: NETS[net].id, f: me, to: me, from: ethers.getAddress(from), a: ethers.formatEther(x.value), s: NETS[net].sym, t: Date.parse(x.timestamp) || Date.now(), st: 'ok', d: 'in' });
+    for (const x of (tx && tx.items) || []) {
+      if (!x.value || x.value === '0') continue;
+      dir(x, ethers.formatEther(x.value), n.sym, x.hash, Date.parse(x.timestamp) || Date.now(), x.status === 'ok' ? 'ok' : 'fail');
     }
-    return true;
+    for (const x of (tt && tt.items) || []) {
+      const a0 = x.token && x.token.address_hash, m = a0 && mine.find(t => t.a.toLowerCase() === a0.toLowerCase());
+      if (!m || !x.total || x.total.value == null) continue;
+      const dec = x.total.decimals != null ? Number(x.total.decimals) : m.d;
+      dir(x, ethers.formatUnits(x.total.value, dec), m.s, x.transaction_hash, Date.parse(x.timestamp) || Date.now(), 'ok');
+    }
+    if (tk) {
+      const have = new Set(mine.map(t => t.a.toLowerCase())), hid = new Set(hidden()[id] || []);
+      found[id] = (tk.items || []).filter(x => x.token && x.token.address_hash && x.token.symbol && x.token.decimals != null && Number(x.token.decimals) >= 0 && Number(x.token.decimals) <= 36 && x.token.reputation !== 'scam' && x.value && x.value !== '0' && !have.has(x.token.address_hash.toLowerCase()) && !hid.has(x.token.address_hash.toLowerCase()))
+        .slice(0, 25).map(x => ({ a: ethers.getAddress(x.token.address_hash), s: String(x.token.symbol).slice(0, 12), n: String(x.token.name || '').slice(0, 40), d: Number(x.token.decimals), v: ethers.formatUnits(x.value, Number(x.token.decimals)) }));
+    }
   } catch { return false; }
+  fresh.forEach(h => toast('Received ' + fmt(h.a) + ' ' + h.s));
+  if (fresh.length) refresh();
+  return true;
 }
-async function syncHistory() {
+async function syncHistory(force) {
   if (!wallet || syncing) return;
   syncing = true;
-  const t = await syncTokens(), e = await syncEth();
+  const t = await syncTokens(), e = await syncExplorer(force);
   syncing = false;
-  renderHist();
-  const n = $('#hn'); if (n) n.textContent = e === null ? (t ? 'Incoming ' + NETS[net].sym + ' transfers are not tracked on this network. Token transfers are.' : 'Incoming transfers could not be checked right now.') : (t && e) ? '' : 'Some incoming transfers could not be checked right now (' + [!t && 'tokens', !e && NETS[net].sym].filter(Boolean).join(', ') + ').';
+  renderHist(); paintFound();
+  const n = $('#hn');
+  if (n) n.textContent = e === null ? 'Full history is not available for this network, so only transfers this app saw are shown. A Blockscout key may add more (Settings, History and tokens).' : (t && e) ? '' : 'Some history could not be loaded right now. It will retry.';
 }
+function paintFound() {
+  const e = $('#fnd'); if (!e) return;
+  const l = found[NETS[net].id] || [];
+  e.innerHTML = l.length ? `<button class="lnk" style="margin:0 0 12px" onclick="foundView()">${l.length} new token${l.length > 1 ? 's' : ''} found &middot; Review</button>` : '';
+}
+function foundView() {
+  const id = NETS[net].id, l = found[id] || [];
+  sub('Found tokens', `<p class="note">These tokens were found at your address on <b>${esc(NETS[net].name)}</b>. Anyone can send you a token, including fake ones. Add only tokens you recognise.</p>${l.length ? `<div class="list">${l.map((t, i) => `<div class="row"><div class="ti" style="background:hsl(${((t.s.charCodeAt(0) || 65) * 47) % 360} 55% 48%)">${esc(t.s.slice(0, 1))}</div><div class="rm"><b>${esc(t.s)}</b><span>${esc(t.n)} &middot; ${esc(short(t.a))}</span><span>Balance ${esc(fmt(t.v))}</span></div><div><button class="sm" style="margin:0 0 6px;display:block" onclick="foundAdd(${i})">Add</button><button class="sm alt" style="margin:0;display:block" onclick="foundHide(${i})">Hide</button></div></div>`).join('')}</div>` : '<p class="note">Nothing new.</p>'}`);
+}
+function foundAdd(i) {
+  const id = NETS[net].id, t = (found[id] || [])[i]; if (!t) return;
+  saveTokens([...tokens(), { a: t.a, s: t.s, d: t.d }]); found[id].splice(i, 1); lastAll = 0; lastPrice = 0; foundView();
+}
+function foundHide(i) { const id = NETS[net].id, t = (found[id] || [])[i]; if (!t) return; hideTok(id, t.a); found[id].splice(i, 1); foundView(); }
+function histSetView() {
+  tab = 'settings';
+  const id = NETS[net].id, key = bsKey(), src = key ? 'Blockscout PRO API (your key)' : EXPL[id] ? 'Blockscout public explorer' : 'Not available';
+  sub('History and tokens', `<div class="card"><p class="note" style="margin:0">History and tokens are read from the blockchain by address, so they come back with your recovery phrase on any device. The wallet asks a Blockscout explorer, which can see your address.</p></div>
+  <div class="card"><div class="kv" style="border:0;padding:0"><span>Source on ${esc(NETS[net].name)}</span><b>${esc(src)}</b></div></div>
+  <div class="card"><h2>Blockscout PRO API key (optional)</h2><p class="note">A free key from dev.blockscout.com raises the limits and may add more networks. It is stored in this browser.</p><input id="bk1" type="password" autocomplete="off" spellcheck="false" placeholder="proapi_..." value="${esc(key)}"><button onclick="bsSave()">Save key</button>${key ? '<button class="alt danger" onclick="bsClear()">Remove key</button>' : ''}</div>
+  <button class="alt" onclick="bsNow()">Sync now</button><div id="m"></div>`);
+}
+function bsSave() {
+  const k = $('#bk1').value.trim();
+  if (!/^[\w.-]{8,200}$/.test(k)) return msg('m', 'That does not look like a valid key.');
+  try { localStorage.setItem(BKEY, k); } catch {}
+  for (const c in lastEx) delete lastEx[c];
+  toast('Key saved'); histSetView();
+}
+function bsClear() { try { localStorage.removeItem(BKEY); } catch {} for (const c in lastEx) delete lastEx[c]; toast('Key removed'); histSetView(); }
+async function bsNow() { msg('m', 'Syncing...', 1); await syncHistory(true); const m = $('#m'); if (m) msg('m', 'Done. ' + (found[NETS[net].id] || []).length + ' new token(s) found.', 1); }
 function drawQR() {
   const b = $('#qr'); if (!b) return;
   if (!window.qrcode) { b.innerHTML = '<p class="note" style="line-height:1.4;padding:10px">QR library could not load. Copy the address instead.</p>'; return; }
@@ -438,9 +515,9 @@ function mainView() {
   <div class="bl"><span>Total balance</span><div class="bv" id="tot">...</div><div class="bs2" id="bal">...</div></div>
   <div class="ac"><button class="ab" onclick="sendView('')">${IC.up}<span>Send</span></button><button class="ab" onclick="receiveView('')">${IC.down}<span>Receive</span></button><button class="ab" onclick="copyText('${wallet.address}', this.querySelector('span'))">${IC.copy}<span>Copy</span></button></div></section>
   <div class="tabs"><button id="t-assets" onclick="setTab('assets')">Assets</button><button id="t-activity" onclick="setTab('activity')">Activity</button><button id="t-settings" onclick="setTab('settings')">Settings</button></div>
-  <div id="p-assets"><div class="list"><div class="row clk" onclick="assetView('')"><div class="ti" style="background:${n.c || '#6b7a99'}">${esc(n.sym.slice(0, 1))}</div><div class="rm"><b>${esc(n.sym)}</b><span id="np">${esc(n.name)}</span></div><div class="rb"><div id="nb">...</div><small class="fv" id="nv"></small></div></div><div id="tk">${tokens().map(tokRow).join('')}</div></div><button class="lnk" onclick="addView()">+ Add token</button><p class="note" id="pnote" style="margin-top:12px"></p></div>
+  <div id="p-assets"><div id="fnd"></div><div class="list"><div class="row clk" onclick="assetView('')"><div class="ti" style="background:${n.c || '#6b7a99'}">${esc(n.sym.slice(0, 1))}</div><div class="rm"><b>${esc(n.sym)}</b><span id="np">${esc(n.name)}</span></div><div class="rb"><div id="nb">...</div><small class="fv" id="nv"></small></div></div><div id="tk">${tokens().map(tokRow).join('')}</div></div><button class="lnk" onclick="addView()">+ Add token</button><p class="note" id="pnote" style="margin-top:12px"></p></div>
   <div id="p-activity"><div class="list" id="hs"></div><p class="note" id="hn" style="margin-top:12px"></p><p class="note">Shows what you sent from this app and what you received.</p></div>
-  <div id="p-settings"><button class="srow" style="margin-top:0" onclick="networksView()">Networks <span>&rsaquo;</span></button><button class="srow" onclick="manageView()">Manage tokens <span>&rsaquo;</span></button><button class="srow" onclick="txpwView()">Transaction password <span>${loadTx() ? 'On' : 'Off'} &rsaquo;</span></button><button class="srow" onclick="secView()">Recovery phrase and private key <span>&rsaquo;</span></button><button class="srow" onclick="backupView()">Export encrypted backup <span>&rsaquo;</span></button><button class="srow" onclick="lock()">Lock wallet <span>&rsaquo;</span></button><button class="srow dng" onclick="wipeView()">Remove wallet from this device</button><p class="note" style="margin-top:16px">Dorax Wallet. Non-custodial: your keys never leave this device.</p></div>`, null);
+  <div id="p-settings"><button class="srow" style="margin-top:0" onclick="networksView()">Networks <span>&rsaquo;</span></button><button class="srow" onclick="manageView()">Manage tokens <span>&rsaquo;</span></button><button class="srow" onclick="histSetView()">History and tokens <span>&rsaquo;</span></button><button class="srow" onclick="txpwView()">Transaction password <span>${loadTx() ? 'On' : 'Off'} &rsaquo;</span></button><button class="srow" onclick="secView()">Recovery phrase and private key <span>&rsaquo;</span></button><button class="srow" onclick="backupView()">Export encrypted backup <span>&rsaquo;</span></button><button class="srow" onclick="lock()">Lock wallet <span>&rsaquo;</span></button><button class="srow dng" onclick="wipeView()">Remove wallet from this device</button><p class="note" style="margin-top:16px">Dorax Wallet. Non-custodial: your keys never leave this device.</p></div>`, null);
   setTab(tab); paint(); refresh(); refreshAll(); loadPrices(); syncHistory(); renderHist(); checkPending();
 }
 const loadTx = () => { try { return JSON.parse(localStorage.getItem(TXKEY)); } catch { return null; } };
@@ -663,6 +740,7 @@ function paint() {
     d.textContent = val(b);
     const dv = $('#dv'); if (dv) dv.textContent = pr !== undefined ? (b ? '\u2248 ' + usd(b.v * pr) + ' \u00b7 ' : '') + px(pr) + ' per ' + sym : n.test ? 'Test network assets have no market value' : 'Price not available';
   }
+  paintFound();
   const pn = $('#pnote'); if (pn) pn.textContent = pricesFail ? 'Prices could not be loaded. Showing the last known values.' : 'Prices come from DefiLlama and update about once a minute. Test networks have no value.';
 }
 let toastT;
@@ -696,7 +774,7 @@ function manageView() {
 }
 function rmToken(i) {
   if (!confirm('Remove this token from the list? Your tokens are not deleted.')) return;
-  const l = tokens(); l.splice(i, 1); saveTokens(l); manageView();
+  const l = tokens(), r = l.splice(i, 1)[0]; if (r) hideTok(NETS[net].id, r.a); saveTokens(l); manageView();
 }
 function sendFor(a) { temp.form = { as: a, to: '', amt: '' }; sendView("assetView('" + a + "')"); }
 function receiveFor(a) { receiveView("assetView('" + a + "')"); }
