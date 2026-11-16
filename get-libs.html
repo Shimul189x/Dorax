@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src https://cdn.jsdelivr.net">
+<meta name="referrer" content="no-referrer">
+<title>Get libraries</title>
+<style>
+body{font:16px/1.5 system-ui,sans-serif;max-width:480px;margin:0 auto;padding:20px;background:#f3f6fc;color:#0f1a33}
+button{width:100%;padding:14px;margin:12px 0 4px;font:inherit;font-weight:600;color:#fff;background:#1f5af6;border:0;border-radius:14px}
+p{color:#566;font-size:14px}.o{word-break:break-all;font-family:monospace;font-size:12px}
+</style>
+</head>
+<body>
+<h1>Download the two libraries</h1>
+<p>One-time step. Tap each button, then upload both downloaded files to your GitHub repo, in the same folder as index.html. After that you can delete this page.</p>
+<button data-u="https://cdn.jsdelivr.net/npm/ethers@6.13.4/dist/ethers.umd.min.js" data-n="ethers.umd.min.js">Download ethers.umd.min.js</button>
+<p class="o" id="o0"></p>
+<button data-u="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js" data-n="qrcode.js">Download qrcode.js</button>
+<p class="o" id="o1"></p>
+<script>
+document.querySelectorAll('button').forEach(function (b, i) {
+  b.addEventListener('click', async function () {
+    var o = document.getElementById('o' + i);
+    o.textContent = 'Downloading...';
+    try {
+      var r = await fetch(b.dataset.u);
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      var buf = await r.arrayBuffer();
+      var h = await crypto.subtle.digest('SHA-256', buf);
+      var hex = Array.from(new Uint8Array(h)).map(function (x) { return x.toString(16).padStart(2, '0'); }).join('');
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([buf], { type: 'application/octet-stream' }));
+      a.download = b.dataset.n;
+      document.body.appendChild(a); a.click(); a.remove();
+      o.textContent = b.dataset.n + ' saved (' + Math.round(buf.byteLength / 1024) + ' KB). SHA-256: ' + hex;
+    } catch (e) { o.textContent = 'Failed: ' + e.message; }
+  });
+});
+</script>
+</body>
+</html>
